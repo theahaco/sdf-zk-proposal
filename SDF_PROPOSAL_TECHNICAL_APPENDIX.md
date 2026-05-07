@@ -2,14 +2,6 @@
 
 Companion to `SDF_PROPOSAL_ONE_PAGER.md`. This is for the SDF protocol team and any reviewer who wants the architecture, milestones, risks, and references in full.
 
-**Revision history (in repo commit log):**
-- v2: initial post-review revision
-- v3: applied 14 must-fix items from second 10-agent review
-- v4: applied HIGH findings from third (focused) review — sequence diagram for `complete_recovery`, recovery-card content rule, rate-limit on initiations, kill-switch DoS mitigation, OZ_UPSTREAM_DIFF.md and `pnpm test:parity` as A1 deliverables, post-grant Shamir constraint
-- v5: VK governance diversified-quorum rule (forecloses both Stellar-only and OZ+community-only collusion paths)
-- v6: pre-A0 skeleton hard precondition; A0 cash-flow as reimbursement (not advance); per-FTE loading chart; budget gross-loading clarified; B7 split into B7a (in-grant) + B7b (post-grant retention report); pass criterion calibrated against measured skeleton not vapor
-- v7 (current): A0 pass criterion tightened to AND-bound (1.5× skeleton AND ≤80M instructions); Track B milestone numbering made contiguous (B0–B7b) with explicit unpaid-prerequisite vs paid-tranche labels; "30–40% sharing" claim reconciled with loading chart (substrate-concentrated, not engineering-hours)
-
 ---
 
 ## 1. Executive recap
@@ -107,7 +99,7 @@ Six steps. (1)–(2) at SmartAccount enrollment; (3)–(6) on recovery.
 2. **Commitment + recovery deposit on-chain.** The wallet derives `owner_secret = HKDF-SHA256(ikm = seed, salt = network_passphrase, info = "g2c-recovery-v1" ‖ account_id)`, reduces modulo BN254 scalar order, and submits `commitment = Poseidon2(domain_sep_commitment, owner_secret)` to the `recovery-controller` along with a one-time **recovery deposit** (covers ~40 days of TTL extension at current Soroban rent). The deposit is refundable on `complete_recovery` net of consumed rent.
 3. **Recovery trigger.** User has lost their passkey. Opens `mysoroban.xyz/recover/`. **Cross-account discovery decision**: the page does NOT maintain a server-side `commitment → C-address` index (privacy regression). Instead the user enters the C-address from a **recovery card**. **Recovery-card content rule (security-critical):** the recovery card contains *only* the C-address and a human-readable account label. **The card MUST NOT contain the BIP-39 seed**, which is held on a separate paper artifact never digitized as QR. This separation defeats the physical-card exfiltration attack (photo of QR ≠ access to seed). Wallets MUST provide a recovery-card export at enrollment as an A5 acceptance criterion. Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt + language selection.
 
-   **Per-account recovery initiation rate limit (NEW v4):** the controller enforces a maximum of 3 `initiate_recovery` calls per 90-day rolling window. This prevents recovery-deposit griefing (initiate→cancel→re-initiate). The 4th attempt within the window is rejected; the user must wait until the oldest initiation falls outside the window.
+   **Per-account recovery initiation rate limit:** the controller enforces a maximum of 3 `initiate_recovery` calls per 90-day rolling window. This prevents recovery-deposit griefing (initiate→cancel→re-initiate). The 4th attempt within the window is rejected; the user must wait until the oldest initiation falls outside the window.
 4. **Proof generation in the browser.** `bb.js` (WASM, lazy-loaded) generates an UltraHonk proof for the circuit:
    ```
    public inputs:
@@ -322,18 +314,17 @@ If the actual `arts1_mint` cost exceeds either bound, SDF and team decide betwee
 | 8 | Pillar 2 securities/AML/sanctions exposure | Medium | High | Track B funds gated on §11 compliance gates; SDF reviewer designated; B1 held until C1 in hand. Track A independent. |
 | 9 | BN254 ~100-bit pairing security degrades within RWA token lifespan | Low | High | Migration plan in Appendix A; VK registry supports parallel BLS12-381 verifier. |
 | 10 | OZ `stellar-accounts` library upgrades break pending recoveries | Medium | Medium | `g2c-oz-compat` shim crate; storage-layout XDR hash CI regression test; library pinned at A1. |
-| 11 | **Cancel-loop attack (NEW v3)** — stolen passkey blocks legitimate recovery indefinitely | Medium | High | `cancel_recovery` requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel. |
-| 12 | **TTL archival race (NEW v3)** — pending-rotation state archived during 30-day window | Medium | Critical | Per-account recovery deposit at enrollment covers ~40 days of TTL extension; `complete_recovery` fails-closed if rent exhausted; `RestoreFootprint` ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery). |
-| 13 | **Pubkey encoding malleability (NEW v3)** | Medium | Critical | In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (`hi*2^128 + lo < secp256r1_modulus`); A1 unit tests cover non-canonical encodings as adversarial inputs. |
-| 14 | **Pre-enrollment squatting (NEW v3)** — attacker phishes mnemonic before user enrolls, registers commitment first | Low | High | Enrollment binds `commitment` to `account_id`; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow). |
-| 15 | **VK-upgrade UI coercion attack (NEW v3)** | Medium | High | "Required VK refresh" prompts disallowed in integrator's-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish `VKUpgradeProposed` alerts before any wallet defaults to opt-in. |
-| 16 | **bb.js supply-chain attack (NEW v3)** | Medium | Critical | SRI hash for the `bb.js` bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact. |
-| 17 | **Recovery-card QR exfiltration (NEW v4)** | Medium | High | Recovery card contains C-address only, NEVER the seed. Seed lives on a separate paper artifact never digitized. A5 acceptance criterion for the export tooling. |
-| 18 | **Recovery-deposit griefing (NEW v4)** | Low | Medium | Per-account recovery initiation rate-limit: max 3 `initiate_recovery` per 90-day rolling window. |
-| 19 | **mysoroban.xyz origin compromise (NEW v4)** | Low | Critical | Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. **Out of scope (post-grant):** native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth. |
-| 20 | **Kill-switch DoS (NEW v4)** | Low | High | First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation. |
-| 21 | **VK upgrade governance bias (NEW v4)** | Low | High | SDF + Stellar Foundation external signers treated as one effective vote *for collusion analysis only*; the on-chain rule remains plain 3-of-5 with the diversified-quorum predicate. **Diversified-quorum rule (v5)**: any 3-of-5 quorum must include ≥1 Group-A signer (SDF/SF) AND ≥1 signer from {Group B (OZ) ∪ Group C (community)}. **Property:** every accepted quorum requires at least one outside-Group-A signature, so even if SDF and SF collude (worst case for the "effective one vote" framing), the 3rd signature must come from OZ or community — i.e. cross-organizational consent is mandatory. Forecloses both Stellar-only collusion AND OZ+community-only collusion. Documented in A2 governance design + grant agreement. |
-| 22 | **Document version drift (NEW v5)** | Low | Low | Header version label maintained per revision; cross-doc consistency verified via grep test on each commit; commit history in repo serves as the canonical revision audit trail. |
+| 11 | **Cancel-loop attack** — stolen passkey blocks legitimate recovery indefinitely | Medium | High | `cancel_recovery` requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel. |
+| 12 | **TTL archival race** — pending-rotation state archived during 30-day window | Medium | Critical | Per-account recovery deposit at enrollment covers ~40 days of TTL extension; `complete_recovery` fails-closed if rent exhausted; `RestoreFootprint` ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery). |
+| 13 | **Pubkey encoding malleability** | Medium | Critical | In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (`hi*2^128 + lo < secp256r1_modulus`); A1 unit tests cover non-canonical encodings as adversarial inputs. |
+| 14 | **Pre-enrollment squatting** — attacker phishes mnemonic before user enrolls, registers commitment first | Low | High | Enrollment binds `commitment` to `account_id`; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow). |
+| 15 | **VK-upgrade UI coercion attack** | Medium | High | "Required VK refresh" prompts disallowed in integrator's-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish `VKUpgradeProposed` alerts before any wallet defaults to opt-in. |
+| 16 | **bb.js supply-chain attack** | Medium | Critical | SRI hash for the `bb.js` bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact. |
+| 17 | **Recovery-card QR exfiltration** | Medium | High | Recovery card contains C-address only, NEVER the seed. Seed lives on a separate paper artifact never digitized. A5 acceptance criterion for the export tooling. |
+| 18 | **Recovery-deposit griefing** | Low | Medium | Per-account recovery initiation rate-limit: max 3 `initiate_recovery` per 90-day rolling window. |
+| 19 | **mysoroban.xyz origin compromise** | Low | Critical | Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. **Out of scope (post-grant):** native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth. |
+| 20 | **Kill-switch DoS** | Low | High | First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation. |
+| 21 | **VK upgrade governance bias** | Low | High | SDF + Stellar Foundation external signers treated as one effective vote *for collusion analysis only*; the on-chain rule is 3-of-5 with the diversified-quorum predicate. Every accepted quorum requires at least one outside-Group-A signature, so SDF+SF collusion still requires OZ or community consent. Documented in A2 governance design + grant agreement. |
 
 ---
 
@@ -383,15 +374,9 @@ A6 deliverable includes a one-page **integrator's guide**: the minimal interface
 
 ---
 
-## 12.5. Optional fast-recovery path (post-grant scope)
+## 12.5. Roadmap: fast-recovery path (post-grant)
 
-The 30-day timelock is structurally incompatible with high-velocity collector use cases (insurance renewals, museum loans, tax audits, estate updates) and was repeatedly flagged across three review rounds (gallery review, end-user persona, Browser engineer, Neftwerk PM).
-
-**v3 commitment:** the team will design a Shamir 2-of-3 fast-recovery path (collector + gallery + Neftwerk shares, 7-day timelock for high-value tokens, gallery-attested) as a **post-grant deliverable**, scoped in a follow-on proposal. The cryptographic substrate for it (Shamir shares + threshold verification) is additive on top of the current recovery primitive — no breaking change to the v3 contracts.
-
-**Constraint (security-critical):** the post-grant Shamir design MUST require the collector's share to participate in any recovery — i.e. **no 2-of-3 path that lets gallery + Neftwerk recover without collector consent**. The threshold scheme is `(collector + 1-of-{gallery, Neftwerk})`, not pure 2-of-3. This forecloses the institutional-collusion attack vector (gallery + Neftwerk recovering a deceased or unreachable collector's tokens without estate consent).
-
-This is explicitly **not in scope for the current grant**. It is acknowledged here so reviewers understand the team is not ignoring the gap; it is sequenced.
+The 30-day timelock is incompatible with high-velocity collector use cases (insurance renewals, museum loans, estate updates). Post-grant deliverable: a Shamir-style fast-recovery path with the threshold scheme `(collector + 1-of-{gallery, Neftwerk})` — collector's share is mandatory, foreclosing institutional-only recovery. Additive on top of the current recovery primitive; no breaking change.
 
 ---
 
@@ -430,8 +415,7 @@ This is explicitly **not in scope for the current grant**. It is acknowledged he
 
 ## Appendix A — Cryptographic parameters
 
-### A.1 — Encoding spec (NEW v3)
-
+### A.1 — Encoding spec
 All Field-bound inputs to Poseidon2 follow these rules:
 
 - **65-byte uncompressed P-256 pubkey** (`0x04 ‖ x ‖ y`): split into 5 limbs of ≤128 bits via big-endian decomposition. Order: `(prefix_byte, x_hi, x_lo, y_hi, y_lo)`. Each limb range-checked `< 2^128` in-circuit. Composition check: `prefix == 0x04` and `x = x_hi * 2^128 + x_lo` and `y = y_hi * 2^128 + y_lo` and `(x, y)` lies on secp256r1.
@@ -475,4 +459,4 @@ All domain separators are passed as the **first** input element of every Poseido
 
 ---
 
-*End of appendix v3. See `SDF_PROPOSAL_ONE_PAGER.md` for the executive summary.*
+*End of appendix. See `SDF_PROPOSAL_ONE_PAGER.md` for the executive summary.*

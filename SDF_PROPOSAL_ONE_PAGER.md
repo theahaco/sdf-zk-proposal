@@ -21,7 +21,7 @@ Both reduce to the same ZK substrate. **Universal primitive in g2c + sector appl
 
 ## Why bundle
 
-One Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x substrate. One verifier crate. One team. The recovery circuit is a **key-rotation primitive any Soroban Smart Account can adopt**; neftwerk is the second consumer, not the only one. We estimate **~30–40% engineering shared** across the two tracks. **Track A and Track B are disbursed independently**: an A0 benchmark failure or Track B compliance gate does not affect Track A funding.
+One Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x substrate. One verifier crate. One team. The recovery circuit is a **key-rotation primitive any Soroban Smart Account can adopt**; neftwerk is the second consumer, not the only one. We estimate **~30–40% engineering shared** across the two tracks — concentrated in substrate work (verifier crate, browser SDK, Poseidon2 binding, OZ shim, audit RFP) rather than co-developed circuit/contract code. **Track A and Track B are disbursed independently**: an A0 benchmark failure or Track B compliance gate does not affect Track A funding.
 
 ## Evidence we can ship today
 
