@@ -18,7 +18,7 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
     theme: "base",
     themeVariables: {
       fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      fontSize: "15px",
+      fontSize: "13px",
       primaryColor: "#eef2f7",
       primaryBorderColor: "#155799",
       primaryTextColor: "#0b3d2e",
@@ -31,8 +31,8 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
       noteBorderColor: "#d97706",
       noteTextColor: "#451a03",
     },
-    flowchart: { curve: "basis", nodeSpacing: 60, rankSpacing: 80, htmlLabels: true, useMaxWidth: false },
-    sequence: { actorMargin: 70, boxMargin: 14, noteFontWeight: "500", messageFontWeight: "400", useMaxWidth: false },
+    flowchart: { curve: "basis", nodeSpacing: 40, rankSpacing: 55, htmlLabels: true, useMaxWidth: true },
+    sequence: { actorMargin: 50, boxMargin: 10, noteFontWeight: "500", messageFontWeight: "400", useMaxWidth: true },
   });
   document.querySelectorAll("pre code.language-mermaid").forEach((block) => {
     const div = document.createElement("div");
@@ -66,8 +66,8 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
 
   /* === Body === */
   .main-content {
-    max-width: 1080px;
-    margin: 0 auto;
+    max-width: 1180px;
+    margin: 0;            /* left-align (was 0 auto) */
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   /* Constrain prose to a comfortable measure while letting tables/diagrams use full width */
@@ -143,13 +143,13 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
     background: #fafbfc;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
-    overflow-x: auto;        /* let big diagrams scroll horizontally rather than shrink */
-    text-align: center;
+    overflow-x: auto;        /* fallback if a diagram still exceeds container */
+    text-align: left;
   }
   .mermaid svg {
-    max-width: none;         /* render at natural size; container scrolls if needed */
+    max-width: 100%;         /* fit container; mermaid useMaxWidth handles scaling */
     height: auto;
-    margin: 0 auto;
+    display: block;
   }
 
   /* === Mobile === */
@@ -157,7 +157,7 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
     .main-content { font-size: 16px; padding: 1.2rem; }
     .main-content table { font-size: 0.84em; }
     .mermaid { padding: 0.5em; }
-    .mermaid svg { min-width: 700px; }
+    .mermaid svg { min-width: 0; }    /* fit small viewports cleanly */
     .proposal-meta { font-size: 0.7rem; letter-spacing: 0.12em; }
   }
 
