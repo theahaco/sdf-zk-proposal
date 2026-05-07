@@ -3,3 +3,4 @@ rs-soroban-ultrahonk/
 soroban-zk-demo/
 .DS_Store
 *.swp
+.playwright-mcp/
