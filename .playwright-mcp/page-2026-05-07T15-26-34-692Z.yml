@@ -1,0 +1,1593 @@
+- generic [active] [ref=e1]:
+  - link "Skip to the content." [ref=e2] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=e3]:
+    - heading "ZK Proofs on Soroban — Recovery + Privacy Bundle" [level=1] [ref=e4]
+    - heading "A proposal to the Stellar Development Foundation" [level=2] [ref=e5]
+    - link "View on GitHub" [ref=e6] [cursor=pointer]:
+      - /url: https://github.com/theahaco/sdf-zk-proposal
+  - main [ref=e7]:
+    - 'heading "ZK Proofs on Soroban: Recovery + Privacy Bundle" [level=1] [ref=e8]'
+    - paragraph [ref=e9]:
+      - emphasis [ref=e10]: A proposal to the Stellar Development Foundation.
+    - separator [ref=e11]
+    - heading "Executive summary" [level=2] [ref=e12]
+    - paragraph [ref=e13]:
+      - text: ZK proofs on Soroban are no longer hypothetical. We have a Noir/UltraHonk verifier validating real proofs on Stellar testnet today, and we are proposing to land it as a
+      - strong [ref=e14]: recovery primitive in g2c
+      - text: and a
+      - strong [ref=e15]: privacy circuit in neftwerk
+      - text: — under one coordinated grant with hard track separation.
+    - paragraph [ref=e16]:
+      - strong [ref=e17]: Why now.
+      - text: Soroban Smart Accounts have shipped, and OpenZeppelin’s
+      - code [ref=e18]: CustomAccountInterface
+      - text: "is the de-facto integration surface (g2c uses it today). Two structural gaps remain:"
+    - list [ref=e19]:
+      - listitem [ref=e20]:
+        - strong [ref=e21]: Recovery.
+        - text: g2c’s current story is “register a backup passkey.” That is not enough — there is no key-rotation path for the lone-passkey case.
+      - listitem [ref=e22]:
+        - strong [ref=e23]: Privacy.
+        - text: Stellar lacks a native primitive for hiding ownership while keeping provenance verifiable — a blocker for institutional and RWA use cases.
+    - paragraph [ref=e24]:
+      - text: Both reduce to the same ZK substrate.
+      - strong [ref=e25]: Universal primitive in g2c + sector application in neftwerk.
+    - paragraph [ref=e26]:
+      - strong [ref=e27]: "Pillar 1 — g2c: ZK account recovery as a universal primitive."
+      - text: At enrollment the user records a 24-word BIP-39 seed on paper, offline. The wallet deterministically derives
+      - code [ref=e28]: owner_secret = HKDF(seed, account_id, network_passphrase)
+      - text: and commits
+      - strong [ref=e29]: only its one-way hash
+      - code [ref=e30]: Poseidon2(owner_secret)
+      - text: on-chain — the seed and
+      - code [ref=e31]: owner_secret
+      - text: never leave the browser; on-chain observers see a meaningless 32-byte hash. On recovery, the user re-enters the seed, re-derives the same
+      - code [ref=e32]: owner_secret
+      - text: ", and generates a Noir/UltraHonk zero-knowledge proof of"
+      - emphasis [ref=e33]: “I know the preimage of the on-chain commitment”
+      - text: — proving identity without revealing the secret. The proof is bound to a fully-specified
+      - code [ref=e34]: auth_hash
+      - text: (account, network, contract, new pubkey with on-curve + canonical-limb checks, nonce, timelock duration), so it can’t be replayed against a different rotation. A new
+      - code [ref=e35]: g2c-recovery-controller
+      - text: contract holds the pending-rotation state machine; a separate
+      - code [ref=e36]: g2c-recovery-guard-policy
+      - text: (OZ
+      - code [ref=e37]: Policy
+      - text: scoped to
+      - code [ref=e38]: CallContract(self_addr)
+      - text: ) blocks any signer eviction during the 30-day window. Cancellation requires both the WebAuthn signer AND a fresh seed-knowledge proof, capped at 2 cancels per recovery (closes the cancel-loop attack). Integration plugs into g2c’s existing OZ
+      - code [ref=e39]: do_check_auth
+      - text: pipeline; no protocol changes.
+    - paragraph [ref=e40]:
+      - strong [ref=e41]: "Pillar 2 — neftwerk: ZK privacy as a sector validator."
+      - text: Neftwerk’s ARTS-1 token standard for art on Stellar uses three Noir circuits —
+      - code [ref=e42]: arts1_mint
+      - text: (dual-ECDSA institutional + collector),
+      - code [ref=e43]: arts1_ownership
+      - text: (private transfer authority), and
+      - code [ref=e44]: arts1_recovery
+      - text: "(the same primitive as Pillar 1 with token-id binding). Privacy model: “private title, public provenance.”"
+    - paragraph [ref=e45]:
+      - strong [ref=e46]: Why bundle.
+      - text: One Noir + UltraHonk + Poseidon2 + BN254 + Soroban 26.x substrate. One verifier crate. One team. The recovery circuit is a
+      - strong [ref=e47]: key-rotation primitive any Soroban Smart Account can adopt
+      - text: ; neftwerk is the second consumer, not the only one. We estimate
+      - strong [ref=e48]: ~30–40% engineering shared
+      - text: "across the two tracks — concentrated in substrate work (verifier crate, browser SDK, Poseidon2 binding, OZ shim, audit RFP) rather than co-developed circuit/contract code. Track A and Track B are disbursed independently: an A0 benchmark failure or a Track B compliance gate does not affect Track A funding."
+    - paragraph [ref=e49]:
+      - strong [ref=e50]: Evidence we can ship today.
+    - list [ref=e51]:
+      - listitem [ref=e52]:
+        - strong [ref=e53]:
+          - text: Testnet E2E (
+          - code [ref=e54]: soroban-zk-demo
+          - text: ).
+        - text: Browser generates Noir/UltraHonk proof; Soroban verifier contract validates on-chain.
+        - code [ref=e55]: ./test_e2e.sh
+        - text: runs build → deploy → prove → verify on Stellar testnet.
+      - listitem [ref=e56]:
+        - strong [ref=e57]:
+          - text: Verifier crate (
+          - code [ref=e58]: rs-soroban-ultrahonk
+          - text: ).
+        - text: Standalone Soroban contract wrapping the UltraHonk verifier. VK ~1.9 KB, proof ~3.7 KB.
+      - listitem [ref=e59]:
+        - strong [ref=e60]: Nullifier-set + Merkle-frontier primitive.
+        - text: Reference implementation with depth-20 tree, insertion proofs, and nullifier-set state — the substrate for revocation, replay protection, and future batched settlement.
+    - paragraph [ref=e61]:
+      - strong [ref=e62]: Budget headline.
+    - table [ref=e63]:
+      - rowgroup [ref=e64]:
+        - row "Track Scope Total" [ref=e65]:
+          - columnheader "Track" [ref=e66]
+          - columnheader "Scope" [ref=e67]
+          - columnheader "Total" [ref=e68]
+      - rowgroup [ref=e69]:
+        - row "A0 (shared) Pre-grant Soroban gas/CPU benchmark gate $15k split 50/50" [ref=e70]:
+          - cell "A0 (shared)" [ref=e71]:
+            - strong [ref=e72]: A0 (shared)
+          - cell "Pre-grant Soroban gas/CPU benchmark gate" [ref=e73]
+          - cell "$15k split 50/50" [ref=e74]
+        - row "Track A — g2c recovery A1 spec + g2c-OZ shim → A2 verifier + named-org VK multi-sig + recovery-controller + recovery-guard-policy → A4 integration + cancel-loop tests → A5 browser UX + recovery-card → A6 audit-ready freeze + mainnet + signed integrator agreement $75k tranched" [ref=e75]:
+          - cell "Track A — g2c recovery" [ref=e76]:
+            - strong [ref=e77]: Track A — g2c recovery
+          - cell "A1 spec + g2c-OZ shim → A2 verifier + named-org VK multi-sig + recovery-controller + recovery-guard-policy → A4 integration + cancel-loop tests → A5 browser UX + recovery-card → A6 audit-ready freeze + mainnet + signed integrator agreement" [ref=e78]
+          - cell "$75k tranched" [ref=e79]
+        - row "Track B — neftwerk privacy B0–B7, gated on A0 pass + Pillar 2 compliance gates reviewed by a named SDF reviewer (B1 held until C1 in hand) $100k tranched" [ref=e80]:
+          - cell "Track B — neftwerk privacy" [ref=e81]:
+            - strong [ref=e82]: Track B — neftwerk privacy
+          - cell "B0–B7, gated on A0 pass + Pillar 2 compliance gates reviewed by a named SDF reviewer (B1 held until C1 in hand)" [ref=e83]
+          - cell "$100k tranched" [ref=e84]
+        - row "Total 14 weeks, ~3 FTE $190k" [ref=e85]:
+          - cell "Total" [ref=e86]:
+            - strong [ref=e87]: Total
+          - cell "14 weeks, ~3 FTE" [ref=e88]
+          - cell "$190k" [ref=e89]:
+            - strong [ref=e90]: $190k
+    - paragraph [ref=e91]:
+      - text: "Audit credits requested separately from SDF’s standard pool:"
+      - strong [ref=e92]: circuit audit
+      - text: (zkSecurity / Veridise / Spearbit ZK) and
+      - strong [ref=e93]: contract audit
+      - text: (OtterSec / Trail of Bits / Halborn) named separately, with a 4-week circuit freeze and 3-week contract freeze.
+    - separator [ref=e94]
+    - 'heading "1. Architecture: ZK signer plug-in to g2c" [level=2] [ref=e95]'
+    - document [ref=e97]:
+      - generic [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e105]: Stellar / Soroban
+          - generic [ref=e110]: Browser (private)
+        - generic [ref=e121]:
+          - generic [ref=e125]: derived locally
+          - generic [ref=e129]: atomic enroll
+          - generic [ref=e133]: registers commitment
+          - generic [ref=e137]: __check_auth
+          - generic [ref=e141]: dispatches
+          - generic [ref=e145]: enforces
+          - generic [ref=e149]: cross-call
+          - generic [ref=e153]: reads pending state
+          - generic [ref=e158]:
+            - text: inner calls
+            - text: add/remove signer
+          - generic [ref=e162]: proof + auth_hash
+          - generic [ref=e167]:
+            - text: Poseidon2 commitment
+            - text: at enrollment
+        - generic [ref=e168]:
+          - generic [ref=e173]: g2c-factory
+          - generic [ref=e178]: g2c-smart-account
+          - generic [ref=e183]: g2c-zk-recovery-verifier
+          - generic [ref=e188]: g2c-recovery-controller
+          - generic [ref=e193]: g2c-recovery-guard-policy
+          - generic [ref=e198]: ultrahonk-soroban-verifier
+          - generic [ref=e204]:
+            - text: OZ stellar-accounts
+            - text: (via g2c-oz-compat shim)
+          - generic [ref=e210]:
+            - text: BIP-39 seed
+            - text: (paper, never digital)
+          - generic [ref=e216]:
+            - text: owner_secret
+            - text: = HKDF(seed, ...)
+          - generic [ref=e222]:
+            - text: Noir / UltraHonk prover
+            - text: (bb.js WASM)
+    - paragraph [ref=e223]:
+      - text: The integration introduces
+      - strong [ref=e224]: three new contracts
+      - text: "plus a compatibility shim:"
+    - list [ref=e225]:
+      - listitem [ref=e226]:
+        - strong [ref=e227]:
+          - code [ref=e228]: g2c-zk-recovery-verifier
+        - text: — stateless OZ
+        - code [ref=e229]: Verifier
+        - text: .
+        - strong [ref=e230]: Implements the full trait
+        - text: ":"
+        - code [ref=e231]: verify(env, hash, key_data, sig_data) -> bool
+        - text: ","
+        - code [ref=e232]: canonicalize_key(env, key_data) -> Bytes
+        - text: ","
+        - code [ref=e233]: batch_canonicalize_key(env, key_data_list) -> Bytes
+        - text: .
+        - code [ref=e234]: KeyData = BytesN<32>
+        - text: (Poseidon2 commitment).
+        - code [ref=e235]: "SigData = (proof_bytes: Bytes, public_inputs: Vec<BytesN<32>>)"
+        - text: . Cross-invokes
+        - code [ref=e236]: ultrahonk-soroban-verifier
+        - text: .
+      - listitem [ref=e237]:
+        - strong [ref=e238]:
+          - code [ref=e239]: g2c-recovery-controller
+        - text: — stateful contract owning the pending-rotation state machine (§3). Persistent storage with
+        - strong [ref=e240]: explicit TTL extension paid from a per-account recovery deposit
+        - text: ; if deposit is exhausted,
+        - code [ref=e241]: complete_recovery
+        - text: "fails-closed and the pending state archives safely. Entrypoints:"
+        - code [ref=e242]: initiate_recovery
+        - text: ","
+        - code [ref=e243]: cancel_recovery
+        - text: ","
+        - code [ref=e244]: complete_recovery
+        - text: .
+        - strong [ref=e245]: Controller upgrades are governed by the same 3-of-5 VK multi-sig + 14-day timelock as the verifier registry.
+      - listitem [ref=e246]:
+        - strong [ref=e247]:
+          - code [ref=e248]: g2c-recovery-guard-policy
+        - text: — separate OZ
+        - code [ref=e249]: Policy
+        - text: contract, scoped to
+        - code [ref=e250]: ContextRuleType::CallContract(self_address)
+        - text: and
+        - strong [ref=e251]:
+          - text: installed on every
+          - code [ref=e252]: ContextRule
+          - text: that can authorize signer mutations
+        - text: . Its
+        - code [ref=e253]: enforce()
+        - text: reads the recovery-controller’s pending-rotation state via cross-contract call; during a pending rotation it blocks
+        - code [ref=e254]: remove_signer(zk)
+        - text: and requires both signers’ auth for
+        - code [ref=e255]: add_signer(*)
+        - text: . The cross-contract-call gas overhead is measured explicitly in A0 (Policy-with-cross-call benchmark).
+      - listitem [ref=e256]:
+        - strong [ref=e257]:
+          - code [ref=e258]: g2c-oz-compat
+        - text: — thin re-export crate over the OZ
+        - code [ref=e259]: stellar-accounts
+        - text: surface area g2c uses. Pins the OZ version (commit hash + storage-layout XDR hash). CI test fails on storage-layout drift. Future OZ upgrades touch this one file.
+        - strong [ref=e260]:
+          - text: A1 deliverable also publishes an
+          - code [ref=e261]: OZ_UPSTREAM_DIFF.md
+        - text: documenting every divergence between g2c’s consumer-side trait usage and upstream OZ traits, so the contract auditor can scope the shim’s compatibility surface explicitly.
+    - heading "No non-factory enrollment paths" [level=3] [ref=e262]
+    - paragraph [ref=e263]:
+      - text: ZK-signer registration is
+      - strong [ref=e264]: only supported via the atomic factory path
+      - text: (
+      - code [ref=e265]: g2c-factory.create_account_with_zk_signer
+      - text: "). No other enrollment path (manual SDK call, migration of existing g2c accounts, post-deployment registration) is supported. This forecloses pre-enrollment squatting on non-factory paths: a commitment cannot be registered against an"
+      - code [ref=e266]: account_id
+      - text: outside the atomic factory transaction. Migration of existing g2c accounts to ZK recovery is a separate post-grant deliverable with its own threat model.
+    - 'heading "Critical safety property: signer-removal guard" [level=3] [ref=e267]'
+    - paragraph [ref=e268]:
+      - text: The existing OZ
+      - code [ref=e269]: add_signer
+      - text: /
+      - code [ref=e270]: remove_signer
+      - text: (
+      - code [ref=e271]: smart-account/contract.rs:105–113
+      - text: ) requires only
+      - code [ref=e272]: current_contract_address().require_auth()
+      - text: — a stolen WebAuthn signer satisfies this. Naive integration is bypassable.
+    - paragraph [ref=e273]:
+      - text: The fix is the
+      - code [ref=e274]: g2c-recovery-guard-policy
+      - text: above.
+      - strong [ref=e275]: "Three properties make it correct:"
+    - list [ref=e276]:
+      - listitem [ref=e277]:
+        - text: The Policy is
+        - strong [ref=e278]:
+          - text: registered on every
+          - code [ref=e279]: ContextRule
+          - text: that lists a signer with
+          - code [ref=e280]: add_signer
+          - text: /
+          - code [ref=e281]: remove_signer
+          - text: authority
+        - text: — not just the Default rule. A1 deliverable includes a per-rule policy-attachment audit.
+      - listitem [ref=e282]:
+        - text: The Policy is scoped to
+        - code [ref=e283]: ContextRuleType::CallContract(self_address)
+        - text: ", so it intercepts inner calls to the SmartAccount’s signer mutation entrypoints regardless of how"
+        - code [ref=e284]: auth_contexts
+        - text: selects rules.
+      - listitem [ref=e285]:
+        - text: The recovery-controller is registered as a
+        - code [ref=e286]: Signer::Delegated(controller_addr)
+        - text: ", so"
+        - code [ref=e287]: complete_recovery()
+        - text: can satisfy
+        - code [ref=e288]: current_contract_address().require_auth()
+        - text: when it cross-calls the SmartAccount to atomically rotate the signer — but only after timelock + proof-verified.
+    - paragraph [ref=e289]: "A4 acceptance criterion: differential tests cover (i) stolen-passkey-only bypass attempt, (ii) double-recovery, (iii) expiration race, (iv) cancellation during legitimate recovery, (v) policy-not-on-rule bypass, (vi) cancel-loop attack (see §3)."
+    - heading "Sequence diagram for complete_recovery" [level=3] [ref=e290]:
+      - text: Sequence diagram for
+      - code [ref=e291]: complete_recovery
+    - img [ref=e294]
+    - paragraph [ref=e295]:
+      - text: The completion call is
+      - strong [ref=e296]: two inner calls
+      - text: (add_signer then remove_signer) gated by the same guard-policy invocation against the same pending-recovery state. A0 measures this exact path.
+    - separator [ref=e297]
+    - heading "2. Shared ZK substrate" [level=2] [ref=e298]
+    - table [ref=e299]:
+      - rowgroup [ref=e300]:
+        - row "Layer Choice Notes" [ref=e301]:
+          - columnheader "Layer" [ref=e302]
+          - columnheader "Choice" [ref=e303]
+          - columnheader "Notes" [ref=e304]
+      - rowgroup [ref=e305]:
+        - row "Circuit DSL Noir (nargo 1.0.0-beta.x) Mature tooling; first-class UltraHonk backend" [ref=e306]:
+          - cell "Circuit DSL" [ref=e307]
+          - cell "Noir (nargo 1.0.0-beta.x)" [ref=e308]:
+            - text: Noir (
+            - code [ref=e309]: nargo
+            - text: 1.0.0-beta.x)
+          - cell "Mature tooling; first-class UltraHonk backend" [ref=e310]
+        - row "Proving system UltraHonk via Aztec’s Barretenberg (bb 0.87.x) — pinned by SHA-256 of the release tarball Universal SRS; A2 VK registry supports bb-version bumps" [ref=e311]:
+          - cell "Proving system" [ref=e312]
+          - cell "UltraHonk via Aztec’s Barretenberg (bb 0.87.x) — pinned by SHA-256 of the release tarball" [ref=e313]:
+            - text: UltraHonk via Aztec’s Barretenberg (
+            - code [ref=e314]: bb
+            - text: 0.87.x) — pinned by SHA-256 of the release tarball
+          - cell "Universal SRS; A2 VK registry supports bb-version bumps" [ref=e315]:
+            - text: Universal SRS; A2 VK registry supports
+            - code [ref=e316]: bb
+            - text: "-version bumps"
+        - row "Hash Poseidon2 over BN254 scalar field, Aztec parameter set t=3 (commit width-2 sponge), round constants pinned by SHA-256 Domain-separated per use (commitment / recovery / mint / ownership / nullifier)" [ref=e317]:
+          - cell "Hash" [ref=e318]
+          - cell "Poseidon2 over BN254 scalar field, Aztec parameter set t=3 (commit width-2 sponge), round constants pinned by SHA-256" [ref=e319]:
+            - text: Poseidon2 over BN254 scalar field,
+            - strong [ref=e320]: Aztec parameter set t=3 (commit width-2 sponge), round constants pinned by SHA-256
+          - cell "Domain-separated per use (commitment / recovery / mint / ownership / nullifier)" [ref=e321]
+        - row "Curve BN254 ~100-bit pairing security; migration plan to BLS12-381 (Appendix A)" [ref=e322]:
+          - cell "Curve" [ref=e323]
+          - cell "BN254" [ref=e324]
+          - cell "~100-bit pairing security; migration plan to BLS12-381 (Appendix A)" [ref=e325]
+        - row "ECDSA-P256 gadget noir-bigcurve + noir_ecdsa from noir-lang, pinned commit + matched bb 0.87.x compatibility A1 spec names exact tags" [ref=e326]:
+          - cell "ECDSA-P256 gadget" [ref=e327]
+          - cell "noir-bigcurve + noir_ecdsa from noir-lang, pinned commit + matched bb 0.87.x compatibility" [ref=e328]:
+            - code [ref=e329]: noir-bigcurve
+            - text: +
+            - code [ref=e330]: noir_ecdsa
+            - text: from
+            - code [ref=e331]: noir-lang
+            - text: ", pinned commit + matched"
+            - code [ref=e332]: bb
+            - text: 0.87.x compatibility
+          - cell "A1 spec names exact tags" [ref=e333]
+        - row "Verifier ultrahonk-soroban-verifier Rust crate (no_std + alloc) Deployed to Stellar testnet today" [ref=e334]:
+          - cell "Verifier" [ref=e335]
+          - cell "ultrahonk-soroban-verifier Rust crate (no_std + alloc)" [ref=e336]:
+            - code [ref=e337]: ultrahonk-soroban-verifier
+            - text: Rust crate (no_std + alloc)
+          - cell "Deployed to Stellar testnet today" [ref=e338]
+        - row "OZ compatibility New g2c-oz-compat shim crate (see §1) Single re-export surface; storage-layout XDR hash regression suite in CI" [ref=e339]:
+          - cell "OZ compatibility" [ref=e340]
+          - cell "New g2c-oz-compat shim crate (see §1)" [ref=e341]:
+            - text: New
+            - code [ref=e342]: g2c-oz-compat
+            - text: shim crate (see §1)
+          - cell "Single re-export surface; storage-layout XDR hash regression suite in CI" [ref=e343]
+        - row "Soroban SDK 26.x Pinned to a specific commit at A1" [ref=e344]:
+          - cell "Soroban SDK" [ref=e345]
+          - cell "26.x" [ref=e346]
+          - cell "Pinned to a specific commit at A1" [ref=e347]
+        - row "Browser prover bb.js (WASM, lazy-loaded on /recover/ only) COOP/COEP deployment plan in §4" [ref=e348]:
+          - cell "Browser prover" [ref=e349]
+          - cell "bb.js (WASM, lazy-loaded on /recover/ only)" [ref=e350]:
+            - code [ref=e351]: bb.js
+            - text: (WASM, lazy-loaded on
+            - code [ref=e352]: /recover/
+            - text: only)
+          - cell "COOP/COEP deployment plan in §4" [ref=e353]
+    - paragraph [ref=e354]:
+      - strong [ref=e355]: Why UltraHonk over Groth16, Plonk, Halo2, RISC0/SP1?
+      - text: Universal SRS removes per-circuit ceremonies — necessary for a recovery primitive instantiated against bespoke wallet circuits. A0 publishes a Groth16-on-Soroban verification-CPU comparison; if Groth16 verifies at <1/3 the budget for the fixed Pillar-1 recovery circuit, we add a Groth16 verifier
+      - emphasis [ref=e356]: behind the same VK registry
+      - text: (no fork of the substrate; same VK upgrade governance applies).
+    - separator [ref=e357]
+    - heading "3. Recovery flow end-to-end (Pillar 1)" [level=2] [ref=e358]
+    - paragraph [ref=e359]: Six steps. (1)–(2) at SmartAccount enrollment; (3)–(6) on recovery.
+    - list [ref=e360]:
+      - listitem [ref=e361]:
+        - strong [ref=e362]: Seed at enrollment.
+        - text: During g2c onboarding the wallet asks the user to write down a BIP-39 mnemonic (passphrase optional, explicitly supported). The seed never touches the network.
+      - listitem [ref=e363]:
+        - strong [ref=e364]: Commitment + recovery deposit on-chain.
+        - text: The wallet derives
+        - code [ref=e365]: owner_secret = HKDF-SHA256(ikm = seed, salt = network_passphrase, info = "g2c-recovery-v1" ‖ account_id)
+        - text: ", reduces modulo BN254 scalar order, and submits"
+        - code [ref=e366]: commitment = Poseidon2(domain_sep_commitment, owner_secret)
+        - text: to the
+        - code [ref=e367]: recovery-controller
+        - text: along with a one-time
+        - strong [ref=e368]: recovery deposit
+        - text: (covers ~40 days of TTL extension at current Soroban rent). The deposit is refundable on
+        - code [ref=e369]: complete_recovery
+        - text: net of consumed rent.
+      - listitem [ref=e370]:
+        - paragraph [ref=e371]:
+          - strong [ref=e372]: Recovery trigger.
+          - text: User has lost their passkey. Opens
+          - code [ref=e373]: mysoroban.xyz/recover/
+          - text: .
+          - strong [ref=e374]: Cross-account discovery decision
+          - text: ": the page does NOT maintain a server-side"
+          - code [ref=e375]: commitment → C-address
+          - text: index (privacy regression). Instead the user enters the C-address from a
+          - strong [ref=e376]: recovery card
+          - text: .
+          - strong [ref=e377]: "Recovery-card content rule (security-critical):"
+          - text: the recovery card contains
+          - emphasis [ref=e378]: only
+          - text: the C-address and a human-readable account label.
+          - strong [ref=e379]: The card MUST NOT contain the BIP-39 seed
+          - text: ", which is held on a separate paper artifact never digitized as QR. This separation defeats the physical-card exfiltration attack (photo of QR ≠ access to seed). Wallets MUST provide a recovery-card export at enrollment as an A5 acceptance criterion. Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt + language selection."
+        - paragraph [ref=e380]:
+          - strong [ref=e381]: "Per-account recovery initiation rate limit:"
+          - text: the controller enforces a maximum of 3
+          - code [ref=e382]: initiate_recovery
+          - text: calls per 90-day rolling window. This prevents recovery-deposit griefing (initiate→cancel→re-initiate). The 4th attempt within the window is rejected; the user must wait until the oldest initiation falls outside the window.
+      - listitem [ref=e383]:
+        - strong [ref=e384]: Proof generation in the browser.
+        - text: Using
+        - code [ref=e385]: bb.js
+        - text: "(WASM, lazy-loaded), the browser generates a Noir/UltraHonk proof for the circuit:"
+        - code [ref=e389]: "public inputs: commitment : Field // pinned at enrollment auth_hash : Field // single Field, see preimage spec below private inputs: owner_secret : Field new_signer_pubkey : (Field, Field, Field, Field, Field) // 5 limbs ≤128 bits asserts: Poseidon2(domain_sep_commitment, owner_secret) == commitment auth_hash == Poseidon2(domain_sep_recovery, account_id, network_passphrase, contract_addr, limb0, limb1, limb2, limb3, limb4, nonce, timelock_duration) // Pubkey integrity: each_limb < 2^128 // range check limbs_compose_canonically_to_65_bytes // canonical decomposition point_on_secp256r1(decompressed_pubkey) // on-curve check"
+        - paragraph [ref=e390]:
+          - text: The
+          - strong [ref=e391]:
+            - code [ref=e392]: auth_hash
+            - text: is exposed as a single
+            - code [ref=e393]: Field
+          - text: (Poseidon2-hashed externally to one element). All subordinate fields enter the Poseidon2 input vector with explicit byte-encoding rules (Appendix A.1).
+      - listitem [ref=e394]:
+        - strong [ref=e395]: On-chain submission.
+        - text: Wallet calls
+        - code [ref=e396]: recovery-controller.initiate_recovery(account, proof, sig_data, new_pubkey)
+        - text: ". The controller:"
+        - list [ref=e397]:
+          - listitem [ref=e398]:
+            - text: Recomputes
+            - code [ref=e399]: auth_hash
+            - text: from supplied fields and verifies match against the proof’s public input
+          - listitem [ref=e400]:
+            - strong [ref=e401]:
+              - text: Verifies
+              - code [ref=e402]: timelock_duration ≥ 7 days
+              - text: (controller-side floor; not just in-circuit)
+          - listitem [ref=e403]:
+            - text: Verifies
+            - code [ref=e404]: nonce
+            - text: is monotonic (controller’s per-account counter)
+          - listitem [ref=e405]: Pays TTL extension from the recovery deposit (35 days)
+          - listitem [ref=e406]: Stores pending rotation in persistent storage
+          - listitem [ref=e407]:
+            - text: Emits
+            - code [ref=e408]: RecoveryInitiated(account, new_pubkey_hash, completes_at_ledger, cancel_count=0)
+            - text: event
+          - listitem [ref=e409]: Wallets MUST subscribe and notify via the user’s opted-in channel (push/email/SMS)
+      - listitem [ref=e410]:
+        - strong [ref=e411]: 30-day timelock + cancellation policy + completion.
+        - text: During the window,
+        - code [ref=e412]: cancel_recovery()
+        - text: "requires:"
+        - list [ref=e413]:
+          - listitem [ref=e414]:
+            - text: WebAuthn signer signature over
+            - code [ref=e415]: cancel_hash = Poseidon2(domain_sep_cancel, account_id, contract_addr, current_recovery_nonce, ledger_seq_at_cancel)
+          - listitem [ref=e416]:
+            - strong [ref=e417]: AND
+            - text: a fresh
+            - code [ref=e418]: cancel_proof
+            - text: ": a mini-Noir circuit proving"
+            - code [ref=e419]: Poseidon2(domain_sep_commitment, secret) == commitment
+            - text: for the same
+            - code [ref=e420]: commitment
+            - text: . This means cancellation requires
+            - emphasis [ref=e421]: either
+            - text: the legitimate user (who has the seed)
+            - emphasis [ref=e422]: or
+            - text: an attacker who has both the WebAuthn signer AND the seed (in which case rotation is the easier attack — cancellation is pointless).
+          - listitem [ref=e423]:
+            - strong [ref=e424]: Cap of 2 cancels per recovery initiation.
+            - text: A 3rd
+            - code [ref=e425]: cancel_recovery
+            - text: is rejected; the recovery completes after the 30-day window. Cancel count is included in
+            - code [ref=e426]: RecoveryInitiated
+            - text: /
+            - code [ref=e427]: RecoveryCancelled
+            - text: events for monitoring.
+          - listitem [ref=e428]: 24h cooldown between consecutive cancels.
+        - paragraph [ref=e429]:
+          - text: After the timelock + total cancellation pauses, anyone may call
+          - code [ref=e430]: complete_recovery()
+          - text: . The controller — registered as a
+          - code [ref=e431]: Signer::Delegated
+          - text: admin signer — atomically calls
+          - code [ref=e432]: SmartAccount.add_signer(new_pubkey)
+          - text: and
+          - code [ref=e433]: SmartAccount.remove_signer(old_webauthn_signer)
+          - text: in a single inner call, gated by the
+          - code [ref=e434]: g2c-recovery-guard-policy
+          - text: which now permits both because the controller’s auth is valid post-timelock-post-proof.
+    - paragraph [ref=e435]: The cancel-loop attack is closed by the cap + the cancel-proof requirement. The TTL-archival race is closed by the per-account deposit covering the full window.
+    - separator [ref=e436]
+    - heading "4. Privacy flow end-to-end (Pillar 2)" [level=2] [ref=e437]
+    - paragraph [ref=e438]: Three circuits, with explicit input/output specs and gate-count estimates (to be confirmed at A0).
+    - heading "arts1_mint (heaviest)" [level=3] [ref=e439]:
+      - code [ref=e440]: arts1_mint
+      - text: (heaviest)
+    - paragraph [ref=e441]:
+      - text: Verifies at minting that
+      - strong [ref=e442]: both
+      - text: Neftwerk (institutional co-signer) and the collector authorized the mint over the same
+      - code [ref=e443]: auth_hash
+      - text: .
+    - list [ref=e444]:
+      - listitem [ref=e445]:
+        - strong [ref=e446]: "Public inputs:"
+        - code [ref=e447]: commitment
+        - text: (output),
+        - code [ref=e448]: provenance_root
+        - text: ","
+        - code [ref=e449]: auth_hash
+        - text: (single Field),
+        - code [ref=e450]: mint_id
+        - text: ","
+        - code [ref=e451]: token_id
+        - text: .
+      - listitem [ref=e452]:
+        - strong [ref=e453]: "Private inputs:"
+        - text: institutional ECDSA-P256 signature, collector ECDSA-P256 signature,
+        - code [ref=e454]: provenance_secret
+        - text: ", collector"
+        - code [ref=e455]: owner_secret
+        - text: ", collector pubkey limbs."
+      - listitem [ref=e456]:
+        - strong [ref=e457]: "Asserts:"
+        - text: institutional and collector pubkeys both on-curve; both ECDSA verify against
+        - code [ref=e458]: auth_hash
+        - text: ; canonical-limb encoding for both pubkeys;
+        - code [ref=e459]: auth_hash
+        - text: binds
+        - code [ref=e460]: mint_id
+        - text: ","
+        - code [ref=e461]: token_id
+        - text: ", both pubkeys,"
+        - code [ref=e462]: provenance_secret
+        - text: ", and an institution-side freshness counter;"
+        - code [ref=e463]: commitment = Poseidon2(domain_sep_arts1_mint, collector_pk_limbs, owner_secret)
+        - text: .
+      - listitem [ref=e464]:
+        - strong [ref=e465]: "Estimated gates:"
+        - text: "220–280k UltraHonk gates. Browser prove: 90–180s in WASM, peak heap 1.2–1.8 GB. Will OOM iOS Safari;"
+        - strong [ref=e466]: mobile mint must use server-side proving via Neftwerk Protocol
+        - text: (acceptable trust model at mint because Neftwerk is the institutional co-signer anyway).
+    - heading "arts1_ownership" [level=3] [ref=e467]:
+      - code [ref=e468]: arts1_ownership
+    - list [ref=e469]:
+      - listitem [ref=e470]:
+        - strong [ref=e471]: "Public inputs:"
+        - code [ref=e472]: commitment
+        - text: ","
+        - code [ref=e473]: auth_hash
+        - text: ","
+        - code [ref=e474]: token_id
+        - text: .
+      - listitem [ref=e475]:
+        - strong [ref=e476]: "Private inputs:"
+        - code [ref=e477]: owner_secret
+        - text: ", collector pubkey limbs, ECDSA signature over"
+        - code [ref=e478]: auth_hash
+        - text: .
+      - listitem [ref=e479]:
+        - strong [ref=e480]: "Asserts:"
+        - code [ref=e481]: auth_hash
+        - text: binds
+        - code [ref=e482]: token_id
+        - text: ", transaction nonce, contract address, function selector, call args; pubkey on-curve; canonical limbs; commitment matches; signature valid."
+      - listitem [ref=e483]:
+        - strong [ref=e484]: "Estimated gates:"
+        - text: "~110k UltraHonk gates. Browser prove: 8–15s."
+    - heading "arts1_recovery" [level=3] [ref=e485]:
+      - code [ref=e486]: arts1_recovery
+    - list [ref=e487]:
+      - listitem [ref=e488]:
+        - strong [ref=e489]: "Public inputs:"
+        - code [ref=e490]: owner_secret_commitment
+        - text: ","
+        - code [ref=e491]: auth_hash
+        - text: ","
+        - code [ref=e492]: token_id
+        - text: ","
+        - code [ref=e493]: new_owner_pubkey_limbs
+        - text: .
+      - listitem [ref=e494]:
+        - strong [ref=e495]: "Private inputs:"
+        - code [ref=e496]: owner_secret
+        - text: .
+      - listitem [ref=e497]:
+        - strong [ref=e498]: "Asserts:"
+        - code [ref=e499]: auth_hash
+        - text: binds
+        - code [ref=e500]: token_id
+        - text: ", contract address,"
+        - code [ref=e501]: new_owner_pubkey_limbs
+        - text: ", monotonic nonce, timelock floor; commitment matches."
+      - listitem [ref=e502]:
+        - strong [ref=e503]: "Estimated gates:"
+        - text: "6–9k UltraHonk gates. Browser prove: 2–4s."
+    - heading "Privacy properties and known gaps" [level=3] [ref=e504]
+    - paragraph [ref=e505]:
+      - text: The on-chain ARTS-1 contract knows
+      - emphasis [ref=e506]: what
+      - text: a token is (via metadata CID) but not its price or its collector. Price/split logic is off-chain in Neftwerk’s database, injected at sale time as transaction arguments (“late-binding”).
+    - paragraph [ref=e507]:
+      - strong [ref=e508]: "Known gap:"
+      - text: an observer can infer the price by watching USDC outflows on settlement.
+      - strong [ref=e509]: "Roadmap commitment:"
+      - text: a fourth circuit
+      - code [ref=e510]: arts1_settlement
+      - text: using the nullifier-set primitive of §5 (out of scope for this grant; explicitly named here as the next milestone).
+    - separator [ref=e511]
+    - heading "5. Deployment evidence" [level=2] [ref=e512]
+    - heading "soroban-zk-demo — full E2E on testnet" [level=3] [ref=e513]:
+      - code [ref=e514]: soroban-zk-demo
+      - text: — full E2E on testnet
+    - list [ref=e515]:
+      - listitem [ref=e516]:
+        - code [ref=e517]: ./test_e2e.sh
+        - text: runs build → deploy → prove → verify on testnet.
+      - listitem [ref=e518]:
+        - text: "Three-contract pattern:"
+        - code [ref=e519]: zk-contract
+        - text: (commitment + cross-call),
+        - code [ref=e520]: ultrahonk-soroban-contract
+        - text: (proof verifier),
+        - code [ref=e521]: zk-factory-contract
+        - text: (factory).
+      - listitem [ref=e522]:
+        - strong [ref=e523]: "Note:"
+        - text: the current on-disk circuit (
+        - code [ref=e524]: circuits/ownership_proof/src/main.nr
+        - text: ) is a hash-knowledge demo; the
+        - code [ref=e525]: assert(new_commitment == new_commitment)
+        - text: no-op does not bind the public input.
+        - strong [ref=e526]: "A0 deliverable #1 brings this into agreement with §3’s spec"
+        - text: before any other circuit work.
+    - heading "rs-soroban-ultrahonk — verifier crate" [level=3] [ref=e527]:
+      - code [ref=e528]: rs-soroban-ultrahonk
+      - text: — verifier crate
+    - list [ref=e529]:
+      - listitem [ref=e530]: Soroban contract wrapping the UltraHonk verifier; integration tests for simple and Fibonacci-chain circuits.
+      - listitem [ref=e531]:
+        - text: Cost-measurement script in
+        - code [ref=e532]: scripts/invoke_ultrahonk/
+        - text: for testnet gas readings.
+      - listitem [ref=e533]:
+        - text: VK currently immutable at
+        - code [ref=e534]: __constructor
+        - text: ; A2 delivers the upgrade governance.
+    - heading "Nullifier-set + Merkle-frontier primitive" [level=3] [ref=e535]
+    - list [ref=e536]:
+      - listitem [ref=e537]: Reference implementation with depth-20 tree, insertion proofs, and nullifier-set state on Soroban.
+      - listitem [ref=e538]:
+        - text: Demonstrates the substrate for revocation, replay protection, and future batched settlement (
+        - code [ref=e539]: arts1_settlement
+        - text: ).
+      - listitem [ref=e540]:
+        - text: Repo directory will be renamed from
+        - code [ref=e541]: tornado_classic
+        - text: to
+        - code [ref=e542]: nullifier_set_primitive
+        - text: before grant kickoff.
+    - separator [ref=e543]
+    - heading "6. Milestone breakdown" [level=2] [ref=e544]
+    - paragraph [ref=e545]: Two parallel tracks plus a shared pre-grant benchmark. All milestones have measurable acceptance criteria; tranche release is gated on each milestone’s acceptance.
+    - heading "Pre-A0 — Mandatory pre-disbursement skeleton (no SDF fee)" [level=3] [ref=e546]
+    - paragraph [ref=e547]:
+      - strong [ref=e548]: Hard precondition for ANY SDF disbursement, including A0.
+      - text: Before grant signing, the team publishes the
+      - code [ref=e549]: arts1_mint_skeleton.nr
+      - text: gate count under
+      - code [ref=e550]: bb
+      - text: 0.87.x — two
+      - code [ref=e551]: noir-bigcurve
+      - text: ECDSA-P256 verifies + dummy Poseidon2, no real binding. ~2 days of work, performed at the team’s own cost. The published number replaces the prior estimate as the reference for A0’s pass criterion.
+      - strong [ref=e552]: No SDF money flows until this is published.
+    - heading "A0 — Pre-grant Soroban gas benchmark (weeks 1–2, $15k split 50/50)" [level=3] [ref=e553]
+    - paragraph [ref=e554]:
+      - strong [ref=e555]: "Cash-flow:"
+      - text: A0 is
+      - strong [ref=e556]: reimbursement after delivery
+      - text: ", not advance funding. The team carries A0 work at risk; SDF disburses A0a’s $7.5k on A0a deliverables verified, A0b’s $7.5k on A0b deliverables verified. If A0 fails the pass criterion, the $15k is not paid; no clawback because no advance was made."
+    - paragraph [ref=e557]:
+      - strong [ref=e558]: "A0 deliverables, paid 50/50 on completion:"
+    - table [ref=e559]:
+      - rowgroup [ref=e560]:
+        - row "Half Amount Deliverables" [ref=e561]:
+          - columnheader "Half" [ref=e562]
+          - columnheader "Amount" [ref=e563]
+          - columnheader "Deliverables" [ref=e564]
+      - rowgroup [ref=e565]:
+        - 'row "A0a $7.5k (1) On-disk ownership_proof circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for verify_proof on testnet for: simple-1-input, Fibonacci-chain, and the arts1_mint-shaped reference circuit (using the pre-A0 skeleton). (3) Policy-with-cross-contract-call benchmark (the g2c-recovery-guard-policy + controller cross-call cost)." [ref=e566]':
+          - cell "A0a" [ref=e567]
+          - cell "$7.5k" [ref=e568]
+          - 'cell "(1) On-disk ownership_proof circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for verify_proof on testnet for: simple-1-input, Fibonacci-chain, and the arts1_mint-shaped reference circuit (using the pre-A0 skeleton). (3) Policy-with-cross-contract-call benchmark (the g2c-recovery-guard-policy + controller cross-call cost)." [ref=e569]':
+            - text: (1) On-disk
+            - code [ref=e570]: ownership_proof
+            - text: circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for
+            - code [ref=e571]: verify_proof
+            - text: "on testnet for: simple-1-input, Fibonacci-chain, and the"
+            - code [ref=e572]: arts1_mint
+            - text: "-shaped reference circuit (using the pre-A0 skeleton). (3) Policy-with-cross-contract-call benchmark (the"
+            - code [ref=e573]: g2c-recovery-guard-policy
+            - text: + controller cross-call cost).
+        - 'row "A0b $7.5k (1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for arts1_mint (expected: server-side mint required)." [ref=e574]':
+          - cell "A0b" [ref=e575]
+          - cell "$7.5k" [ref=e576]
+          - 'cell "(1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for arts1_mint (expected: server-side mint required)." [ref=e577]':
+            - text: "(1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for"
+            - code [ref=e578]: arts1_mint
+            - text: "(expected: server-side mint required)."
+    - paragraph [ref=e579]:
+      - strong [ref=e580]: "Pass criterion (calibrated against pre-A0 skeleton number, not vapor):"
+      - code [ref=e581]: arts1_mint
+      - text: "-shaped circuit verification cost on Soroban must satisfy"
+      - strong [ref=e582]: BOTH
+      - text: ":"
+    - list [ref=e583]:
+      - listitem [ref=e584]:
+        - strong [ref=e585]: "Design assumption check:"
+        - text: cost ≤
+        - code [ref=e586]: 1.5 × measured_skeleton_cost
+        - text: (the 1.5× multiplier accommodates the gap between skeleton with dummy Poseidon2 and the full circuit with real binding/provenance work)
+      - listitem [ref=e587]:
+        - strong [ref=e588]: "Operational headroom check:"
+        - text: cost ≤
+        - strong [ref=e589]: 80M instructions
+        - text: (= 80% of Soroban’s 100M-instruction cap; leaves 20M for auth, storage, and policy cross-call overhead under load)
+    - paragraph [ref=e590]:
+      - text: AND Policy-with-cross-call adds <10M instructions overhead per
+      - code [ref=e591]: __check_auth
+      - text: .
+      - strong [ref=e592]: Pass = both bounds met.
+    - paragraph [ref=e593]:
+      - text: If the actual
+      - code [ref=e594]: arts1_mint
+      - text: cost exceeds either bound, SDF and team decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate.
+      - strong [ref=e595]:
+        - text: If pre-A0 skeleton itself measures above 50M instructions, the 1.5× bound exceeds 75M which collides with the 80M ceiling — Track B’s
+        - code [ref=e596]: arts1_mint
+        - text: is descoped to single-ECDSA in scope before any funds are committed.
+    - heading "Track A — g2c ZK recovery ($75k tranched 10/20/30/40)" [level=3] [ref=e597]
+    - paragraph [ref=e598]:
+      - strong [ref=e599]: Tranche-payment milestones are bolded.
+      - text: Other milestones are unpaid prerequisites whose work is rolled into the next paid tranche’s release.
+    - table [ref=e600]:
+      - rowgroup [ref=e601]:
+        - row "# Milestone Weeks Acceptance criteria" [ref=e602]:
+          - columnheader "#" [ref=e603]
+          - columnheader "Milestone" [ref=e604]
+          - columnheader "Weeks" [ref=e605]
+          - columnheader "Acceptance criteria" [ref=e606]
+      - rowgroup [ref=e607]:
+        - row [ref=e608]:
+          - cell "A1 (10% — $7.5k)" [ref=e609]:
+            - strong [ref=e610]: A1
+            - emphasis [ref=e611]: (10% — $7.5k)
+          - cell "Spec doc + Noir circuits (recovery + cancel-proof)" [ref=e612]
+          - cell "2–4" [ref=e613]
+          - cell [ref=e614]:
+            - text: "Single PDF pinning: Poseidon2 round constants by SHA-256;"
+            - strong [ref=e615]:
+              - code [ref=e616]: noir-bigcurve
+              - text: and
+              - code [ref=e617]: noir_ecdsa
+              - text: commit hashes pinned
+            - text: ; limb canonicalization rules + on-curve check spec;
+            - code [ref=e618]: auth_hash
+            - text: byte-encoding; HKDF parameters; field-reduction rule; cancellation-hash spec; security argument (reduction sketch); replay matrix (account / network / contract / nonce / token / encoding). Recovery + cancel-proof circuits compile; replay/cross-account/cross-network/canonical-encoding unit tests pass.
+            - strong [ref=e619]:
+              - code [ref=e620]: g2c-oz-compat
+              - text: shim crate published
+            - text: with storage-layout XDR hash regression suite in CI;
+            - strong [ref=e621]:
+              - code [ref=e622]: OZ_UPSTREAM_DIFF.md
+              - text: published
+            - text: documenting all consumer-side divergences.
+            - strong [ref=e623]: Verifier trait fully implemented
+            - text: (
+            - code [ref=e624]: verify
+            - text: ","
+            - code [ref=e625]: canonicalize_key
+            - text: ","
+            - code [ref=e626]: batch_canonicalize_key
+            - text: );
+            - code [ref=e627]: canonicalize_key
+            - text: malleability fuzzer in tests.
+            - strong [ref=e628]:
+              - code [ref=e629]: pnpm test:parity
+              - text: CI test
+            - text: running round-trip across
+            - code [ref=e630]: bb.js
+            - text: prover, JS Poseidon2 commitment generator, and Soroban verifier; covers all 7 domain separators with adversarial vectors (cross-implementation drift kills recovery silently). OZ
+            - code [ref=e631]: stellar-accounts
+            - text: commit pinned.
+        - row [ref=e632]:
+          - cell "A2 (20% — $15k)" [ref=e633]:
+            - strong [ref=e634]: A2
+            - emphasis [ref=e635]: (20% — $15k)
+          - cell "Verifier crate v2 + VK governance + recovery-controller + recovery-guard-policy" [ref=e636]
+          - cell "4–7" [ref=e637]
+          - cell [ref=e638]:
+            - code [ref=e639]: ultrahonk-soroban-verifier
+            - text: v2 with VK registry (circuit_id → VK).
+            - strong [ref=e640]: "VK governance: 3-of-5 multi-sig with diversified-quorum rule across three groups"
+            - text: ": Group A (Stellar-aligned): 1 SDF + 1 Stellar Foundation external (independently selected; treated as a single effective vote for collusion analysis). Group B (auditing org): 1 OpenZeppelin. Group C (community): 2 signers via a"
+            - strong [ref=e641]: two-stage public RFP
+            - text: (open nomination → 30-day public comment → on-chain attestation by Group A + Group B).
+            - strong [ref=e642]: "Quorum rule: any 3-of-5 quorum MUST include at least 1 signer from Group A AND at least 1 signer from {B ∪ C}"
+            - text: . This forecloses both an all-Stellar quorum (Stellar-only collusion impossible — Group B or C must consent) AND an all-non-Stellar quorum (OZ + community alone cannot push a VK upgrade). All keys
+            - strong [ref=e643]: FIDO2 + WebAuthn attestation required, with accepted AAGUIDs published
+            - text: (YubiKey 5 series, SoloKeys, T-series; HSM-only operation).
+            - strong [ref=e644]: 180-day mandatory key rotation
+            - text: verified on-chain.
+            - strong [ref=e645]: "Kill-switch with anti-DoS:"
+            - text: any 1-of-5 can pause a pending upgrade for 7 days; a second pause within 30 days requires 4-of-5 to overcome (prevents one compromised signer from indefinitely DoS’ing emergency rotation). 14-day timelock on upgrades, opt-in per account, orphan-token migration ceremony documented.
+            - code [ref=e646]: g2c-recovery-controller
+            - text: deployed to testnet with full state machine + state-machine PDF + storage-layout diagram + concrete
+            - code [ref=e647]: Context
+            - text: example for
+            - code [ref=e648]: complete_recovery
+            - text: per §1 sequence diagram.
+            - code [ref=e649]: g2c-recovery-guard-policy
+            - text: deployed; per-rule attachment audit produced.
+            - strong [ref=e650]: "Controller upgrade governance: same multi-sig + same diversified-quorum rule + same timelock + same opt-in."
+        - row "A3 Atomic enrollment-time registration 6–7 g2c-factory create_account accepts pre-registered ZK signer at construction with Vec<Signer>, atomically registers commitment with recovery-controller, and enforces timelock_duration ≥ 7 days on enrollment. Unpaid; rolled into A4." [ref=e651]:
+          - cell "A3" [ref=e652]
+          - cell "Atomic enrollment-time registration" [ref=e653]
+          - cell "6–7" [ref=e654]
+          - cell "g2c-factory create_account accepts pre-registered ZK signer at construction with Vec<Signer>, atomically registers commitment with recovery-controller, and enforces timelock_duration ≥ 7 days on enrollment. Unpaid; rolled into A4." [ref=e655]:
+            - text: g2c-factory
+            - code [ref=e656]: create_account
+            - text: accepts pre-registered ZK signer at construction with
+            - code [ref=e657]: Vec<Signer>
+            - text: ", atomically registers commitment with recovery-controller, and enforces"
+            - code [ref=e658]: timelock_duration ≥ 7 days
+            - text: on enrollment.
+            - emphasis [ref=e659]: Unpaid; rolled into A4.
+        - 'row "A4 (30% — $22.5k) SmartAccount integration + signer-removal guard + cancel-loop differential tests 7–9 OZ Policy correctly scoped to CallContract(self_addr) and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering." [ref=e660]':
+          - cell "A4 (30% — $22.5k)" [ref=e661]:
+            - strong [ref=e662]: A4
+            - emphasis [ref=e663]: (30% — $22.5k)
+          - cell "SmartAccount integration + signer-removal guard + cancel-loop differential tests" [ref=e664]
+          - cell "7–9" [ref=e665]
+          - 'cell "OZ Policy correctly scoped to CallContract(self_addr) and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering." [ref=e666]':
+            - text: OZ
+            - code [ref=e667]: Policy
+            - text: correctly scoped to
+            - code [ref=e668]: CallContract(self_addr)
+            - text: "and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering."
+        - row "A5 Browser proving UX + recovery-card export 8–10 <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection. Recovery-card export at enrollment (printable C-address QR; seed remains on separate paper). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). Unpaid; rolled into A6." [ref=e669]:
+          - cell "A5" [ref=e670]
+          - cell "Browser proving UX + recovery-card export" [ref=e671]
+          - cell "8–10" [ref=e672]
+          - cell "<5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection. Recovery-card export at enrollment (printable C-address QR; seed remains on separate paper). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). Unpaid; rolled into A6." [ref=e673]:
+            - text: <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection.
+            - strong [ref=e674]: Recovery-card export at enrollment
+            - text: (printable C-address QR; seed remains on separate paper). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access).
+            - emphasis [ref=e675]: Unpaid; rolled into A6.
+        - 'row "A6 (40% — $30k, with $7.5k withhold if integrator agreement not signed) Audit-ready freeze + mainnet launch + integrator signed 10–14 All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window each. Mainnet deployment with at least one external wallet integrator’s signed integration agreement. Fallback (no schedule slip): if signed agreement is not secured by week 12, A6 ships with (a) integrator’s-guide published + (b) public integration RFP open + (c) ≥1 LOI in hand; SDF holds back $7.5k of the $30k tranche pending signed agreement within 60 days post-grant, releasing the withhold on signature." [ref=e676]':
+          - cell "A6 (40% — $30k, with $7.5k withhold if integrator agreement not signed)" [ref=e677]:
+            - strong [ref=e678]: A6
+            - emphasis [ref=e679]: (40% — $30k, with $7.5k withhold if integrator agreement not signed)
+          - cell "Audit-ready freeze + mainnet launch + integrator signed" [ref=e680]
+          - cell "10–14" [ref=e681]
+          - 'cell "All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window each. Mainnet deployment with at least one external wallet integrator’s signed integration agreement. Fallback (no schedule slip): if signed agreement is not secured by week 12, A6 ships with (a) integrator’s-guide published + (b) public integration RFP open + (c) ≥1 LOI in hand; SDF holds back $7.5k of the $30k tranche pending signed agreement within 60 days post-grant, releasing the withhold on signature." [ref=e682]':
+            - text: All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window each. Mainnet deployment with
+            - strong [ref=e683]: at least one external wallet integrator’s signed integration agreement
+            - text: .
+            - strong [ref=e684]: "Fallback (no schedule slip):"
+            - text: if signed agreement is not secured by week 12, A6 ships with (a) integrator’s-guide published + (b) public integration RFP open + (c) ≥1 LOI in hand; SDF holds back $7.5k of the $30k tranche pending signed agreement within 60 days post-grant, releasing the withhold on signature.
+    - heading "Track B — neftwerk ZK privacy ($100k tranched 10/20/30/40)" [level=3] [ref=e685]
+    - paragraph [ref=e686]:
+      - strong [ref=e687]: Pillar 2 funding gated on Pillar 2 compliance gates (§9) AND A0 pass. B1 disbursement held until C1 legal opinions are in SDF’s hands.
+    - paragraph [ref=e688]:
+      - strong [ref=e689]: Tranche-payment milestones are bolded.
+      - text: Other milestones are unpaid prerequisites whose work is rolled into the next paid tranche’s release.
+    - table [ref=e690]:
+      - rowgroup [ref=e691]:
+        - row "# Milestone Weeks Acceptance criteria" [ref=e692]:
+          - columnheader "#" [ref=e693]
+          - columnheader "Milestone" [ref=e694]
+          - columnheader "Weeks" [ref=e695]
+          - columnheader "Acceptance criteria" [ref=e696]
+      - rowgroup [ref=e697]:
+        - row "B0 Coinflow ↔ Soroban transaction-attachment spike + dual-ECDSA feasibility 2–3 Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton). Unpaid; rolled into B1." [ref=e698]:
+          - cell "B0" [ref=e699]
+          - cell "Coinflow ↔ Soroban transaction-attachment spike + dual-ECDSA feasibility" [ref=e700]
+          - cell "2–3" [ref=e701]
+          - cell "Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton). Unpaid; rolled into B1." [ref=e702]:
+            - text: Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton).
+            - emphasis [ref=e703]: Unpaid; rolled into B1.
+        - row "B1 (10% — $10k) Three-circuit spec 3–5 Spec PDF following A1 format. All three circuits compile. C1 legal opinions delivered to SDF reviewer as gate condition." [ref=e704]:
+          - cell "B1 (10% — $10k)" [ref=e705]:
+            - strong [ref=e706]: B1
+            - emphasis [ref=e707]: (10% — $10k)
+          - cell "Three-circuit spec" [ref=e708]
+          - cell "3–5" [ref=e709]
+          - cell "Spec PDF following A1 format. All three circuits compile. C1 legal opinions delivered to SDF reviewer as gate condition." [ref=e710]:
+            - text: Spec PDF following A1 format. All three circuits compile.
+            - strong [ref=e711]: C1 legal opinions delivered to SDF reviewer
+            - text: as gate condition.
+        - row "B2 arts1_ownership 5–7 Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass. Unpaid; rolled into B4." [ref=e712]:
+          - cell "B2" [ref=e713]
+          - cell "arts1_ownership" [ref=e714]:
+            - code [ref=e715]: arts1_ownership
+          - cell "5–7" [ref=e716]
+          - cell "Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass. Unpaid; rolled into B4." [ref=e717]:
+            - text: Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass.
+            - emphasis [ref=e718]: Unpaid; rolled into B4.
+        - row "B3 arts1_recovery (parameterized A1 primitive) 7–8 Same Noir circuit pattern as A1, parameterized for token_id. Unpaid; rolled into B4." [ref=e719]:
+          - cell "B3" [ref=e720]
+          - cell "arts1_recovery (parameterized A1 primitive)" [ref=e721]:
+            - code [ref=e722]: arts1_recovery
+            - text: (parameterized A1 primitive)
+          - cell "7–8" [ref=e723]
+          - cell "Same Noir circuit pattern as A1, parameterized for token_id. Unpaid; rolled into B4." [ref=e724]:
+            - text: Same Noir circuit pattern as A1, parameterized for
+            - code [ref=e725]: token_id
+            - text: .
+            - emphasis [ref=e726]: Unpaid; rolled into B4.
+        - row "B4 (20% — $20k) arts1_mint 7–10 Compiled circuit; verification cost within A0 budget; descope to single-ECDSA collector signature if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live." [ref=e727]:
+          - cell "B4 (20% — $20k)" [ref=e728]:
+            - strong [ref=e729]: B4
+            - emphasis [ref=e730]: (20% — $20k)
+          - cell "arts1_mint" [ref=e731]:
+            - code [ref=e732]: arts1_mint
+          - cell "7–10" [ref=e733]
+          - cell "Compiled circuit; verification cost within A0 budget; descope to single-ECDSA collector signature if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live." [ref=e734]:
+            - text: Compiled circuit; verification cost within A0 budget;
+            - strong [ref=e735]: descope to single-ECDSA collector signature
+            - text: if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live.
+        - row "B5 Browser pipeline + royalty enforcement scaffolding 10–12 Royalty-locked secondary-transfer logic compiles on testnet. Unpaid; rolled into B6." [ref=e736]:
+          - cell "B5" [ref=e737]
+          - cell "Browser pipeline + royalty enforcement scaffolding" [ref=e738]
+          - cell "10–12" [ref=e739]
+          - cell "Royalty-locked secondary-transfer logic compiles on testnet. Unpaid; rolled into B6." [ref=e740]:
+            - text: Royalty-locked secondary-transfer logic compiles on testnet.
+            - emphasis [ref=e741]: Unpaid; rolled into B6.
+        - row "B6 (30% — $30k) ARTS-1 token contract + on-chain freeze 10–13 E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. C2 on-chain freeze function for legal process implemented and tested." [ref=e742]:
+          - cell "B6 (30% — $30k)" [ref=e743]:
+            - strong [ref=e744]: B6
+            - emphasis [ref=e745]: (30% — $30k)
+          - cell "ARTS-1 token contract + on-chain freeze" [ref=e746]
+          - cell "10–13" [ref=e747]
+          - cell "E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. C2 on-chain freeze function for legal process implemented and tested." [ref=e748]:
+            - text: E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion.
+            - strong [ref=e749]: C2 on-chain freeze function for legal process implemented and tested.
+        - 'row "B7a (40% — $40k less $2.5k withhold if mainnet) ARTS-1 pilot launch (mainnet or testnet) 13–14 Conditional on signed MoU at A0 completion. Acceptance: pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live + 7-day in-grant retention metric (not 30-day, which exceeds grant period)." [ref=e750]':
+          - cell "B7a (40% — $40k less $2.5k withhold if mainnet)" [ref=e751]:
+            - strong [ref=e752]: B7a
+            - emphasis [ref=e753]: (40% — $40k less $2.5k withhold if mainnet)
+          - cell "ARTS-1 pilot launch (mainnet or testnet)" [ref=e754]
+          - cell "13–14" [ref=e755]
+          - 'cell "Conditional on signed MoU at A0 completion. Acceptance: pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live + 7-day in-grant retention metric (not 30-day, which exceeds grant period)." [ref=e756]':
+            - text: Conditional on signed MoU at A0 completion.
+            - strong [ref=e757]: "Acceptance:"
+            - text: pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live +
+            - strong [ref=e758]: 7-day in-grant retention metric
+            - text: (not 30-day, which exceeds grant period).
+        - 'row "B7b (post-grant — $0 delta or released $2.5k withhold) 30-day retention report week 17–18 Disbursed conditionally after grant close: telemetry already running, report generation only. SDF releases the $2.5k withhold from B7a on receipt of B7b (only applicable if mainnet pilot launched at B7a)." [ref=e759]':
+          - cell "B7b (post-grant — $0 delta or released $2.5k withhold)" [ref=e760]:
+            - text: B7b
+            - emphasis [ref=e761]: (post-grant — $0 delta or released $2.5k withhold)
+          - cell "30-day retention report" [ref=e762]
+          - cell "week 17–18" [ref=e763]
+          - 'cell "Disbursed conditionally after grant close: telemetry already running, report generation only. SDF releases the $2.5k withhold from B7a on receipt of B7b (only applicable if mainnet pilot launched at B7a)." [ref=e764]':
+            - text: Disbursed conditionally
+            - strong [ref=e765]: after grant close
+            - text: ": telemetry already running, report generation only. SDF releases the $2.5k withhold from B7a on receipt of B7b (only applicable if mainnet pilot launched at B7a)."
+    - heading "Shared dependencies" [level=3] [ref=e766]
+    - list [ref=e767]:
+      - listitem [ref=e768]: A2 deliverables feed B2/B4/B5.
+      - listitem [ref=e769]: Browser proving SDK (A5) is consumed by B6.
+      - listitem [ref=e770]: Audit firms cover both tracks (see §7).
+    - separator [ref=e771]
+    - heading "7. Budget" [level=2] [ref=e772]
+    - paragraph [ref=e773]:
+      - strong [ref=e774]: "Total: $190k over 14 weeks."
+    - table [ref=e775]:
+      - rowgroup [ref=e776]:
+        - row "Line item Amount Tranching" [ref=e777]:
+          - columnheader "Line item" [ref=e778]
+          - columnheader "Amount" [ref=e779]
+          - columnheader "Tranching" [ref=e780]
+      - rowgroup [ref=e781]:
+        - row "A0 — pre-grant benchmark (split 50/50) $15k A0a $7.5k / A0b $7.5k on completion of each half" [ref=e782]:
+          - cell "A0 — pre-grant benchmark (split 50/50)" [ref=e783]
+          - cell "$15k" [ref=e784]
+          - cell "A0a $7.5k / A0b $7.5k on completion of each half" [ref=e785]
+        - row "Track A — g2c ZK recovery $75k 10% / 20% / 30% / 40% on A1 / A2 / A4 / A6" [ref=e786]:
+          - cell "Track A — g2c ZK recovery" [ref=e787]
+          - cell "$75k" [ref=e788]
+          - cell "10% / 20% / 30% / 40% on A1 / A2 / A4 / A6" [ref=e789]
+        - row "Track B — neftwerk ZK privacy $100k 10% / 20% / 30% / 40% on B1 / B4 / B6 / B7a (B7b is post-grant, $0 delta with $2.5k withhold from B7a if mainnet launched), gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer’s hands" [ref=e790]:
+          - cell "Track B — neftwerk ZK privacy" [ref=e791]
+          - cell "$100k" [ref=e792]
+          - cell "10% / 20% / 30% / 40% on B1 / B4 / B6 / B7a (B7b is post-grant, $0 delta with $2.5k withhold from B7a if mainnet launched), gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer’s hands" [ref=e793]:
+            - text: 10% / 20% / 30% / 40% on
+            - strong [ref=e794]: B1 / B4 / B6 / B7a
+            - text: (B7b is post-grant, $0 delta with $2.5k withhold from B7a if mainnet launched), gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer’s hands
+        - row "Total $190k" [ref=e795]:
+          - cell "Total" [ref=e796]:
+            - strong [ref=e797]: Total
+          - cell "$190k" [ref=e798]:
+            - strong [ref=e799]: $190k
+          - cell [ref=e800]
+    - paragraph [ref=e801]:
+      - strong [ref=e802]: Audit credits
+      - text: "requested separately from SDF’s standard pool. Two auditors, two scopes:"
+    - list [ref=e803]:
+      - listitem [ref=e804]:
+        - strong [ref=e805]: Circuit audit
+        - text: "(4-week scope): zkSecurity, Veridise, or Spearbit ZK practice. Scope: all four Noir circuits + cancel-proof circuit, Poseidon2 parameter set, ECDSA-in-circuit gadgets, limb canonicalization, on-curve checks, replay protection,"
+        - code [ref=e806]: auth_hash
+        - text: preimage binding.
+      - listitem [ref=e807]:
+        - strong [ref=e808]: Contract audit
+        - text: "(3-week scope): OtterSec, Trail of Bits, or Halborn. Scope:"
+        - code [ref=e809]: g2c-zk-recovery-verifier
+        - text: ","
+        - code [ref=e810]: g2c-recovery-controller
+        - text: ","
+        - code [ref=e811]: g2c-recovery-guard-policy
+        - text: ","
+        - code [ref=e812]: g2c-oz-compat
+        - text: shim, generalized factory changes, ARTS-1 token contract.
+    - paragraph [ref=e813]: 2-week fix window after each audit. No mainnet deployment until both audits clean.
+    - paragraph [ref=e814]:
+      - strong [ref=e815]: "Team:"
+      - text: 3 FTE — one ZK/circuit lead (Aztec/Noir background required, must have shipped a production ECDSA-in-circuit gadget), one Soroban/Rust contracts engineer, one frontend/browser-prover engineer. Names and FTE percentages provided to SDF on grant signing.
+      - strong [ref=e816]: Per-FTE loading chart
+      - text: "(delivered with grant agreement, summary here):"
+    - table [ref=e817]:
+      - rowgroup [ref=e818]:
+        - row "Week ZK lead (Track-A bias) Contracts eng (cross-track) Frontend/prover eng" [ref=e819]:
+          - columnheader "Week" [ref=e820]
+          - columnheader "ZK lead (Track-A bias)" [ref=e821]
+          - columnheader "Contracts eng (cross-track)" [ref=e822]
+          - columnheader "Frontend/prover eng" [ref=e823]
+      - rowgroup [ref=e824]:
+        - row "1–2 A0 skeleton + measurements A0 Policy benchmark + cost script A0 browser benchmarks" [ref=e825]:
+          - cell "1–2" [ref=e826]
+          - cell "A0 skeleton + measurements" [ref=e827]
+          - cell "A0 Policy benchmark + cost script" [ref=e828]
+          - cell "A0 browser benchmarks" [ref=e829]
+        - row "3–4 A1 spec PDF + circuits A1 OZ shim + verifier trait A1 parity CI test scaffold" [ref=e830]:
+          - cell "3–4" [ref=e831]
+          - cell "A1 spec PDF + circuits" [ref=e832]
+          - cell "A1 OZ shim + verifier trait" [ref=e833]
+          - cell "A1 parity CI test scaffold" [ref=e834]
+        - row "5–7 B1 / B2 spec + circuit A2 controller + guard-policy + VK registry A5 wireframes + recovery-card export" [ref=e835]:
+          - cell "5–7" [ref=e836]
+          - cell "B1 / B2 spec + circuit" [ref=e837]
+          - cell "A2 controller + guard-policy + VK registry" [ref=e838]
+          - cell "A5 wireframes + recovery-card export" [ref=e839]
+        - row "7–9 B4 mint circuit A3 factory + A4 integration tests A5 BIP-39 UX + WASM lazy-load" [ref=e840]:
+          - cell "7–9" [ref=e841]
+          - cell "B4 mint circuit" [ref=e842]
+          - cell "A3 factory + A4 integration tests" [ref=e843]
+          - cell "A5 BIP-39 UX + WASM lazy-load" [ref=e844]
+        - row "9–11 B5 / B6 circuits + parity tests B6 token contract + freeze function A5 final UX + cross-origin isolation" [ref=e845]:
+          - cell "9–11" [ref=e846]
+          - cell "B5 / B6 circuits + parity tests" [ref=e847]
+          - cell "B6 token contract + freeze function" [ref=e848]
+          - cell "A5 final UX + cross-origin isolation" [ref=e849]
+        - row "11–13 Audit-prep freeze + circuit-audit interface Audit-prep freeze + contract-audit interface A5 mainnet polish" [ref=e850]:
+          - cell "11–13" [ref=e851]
+          - cell "Audit-prep freeze + circuit-audit interface" [ref=e852]
+          - cell "Audit-prep freeze + contract-audit interface" [ref=e853]
+          - cell "A5 mainnet polish" [ref=e854]
+        - row "13–14 B7 pilot launch support A6 mainnet deploy + integrator handoff B7 telemetry + retention metrics" [ref=e855]:
+          - cell "13–14" [ref=e856]
+          - cell "B7 pilot launch support" [ref=e857]
+          - cell "A6 mainnet deploy + integrator handoff" [ref=e858]
+          - cell "B7 telemetry + retention metrics" [ref=e859]
+    - paragraph [ref=e860]:
+      - strong [ref=e861]: "Budget transparency:"
+      - text: $190k = $15k (A0, partial allocation across 3 FTE for 2 weeks) + $175k for the 12-week Track A + Track B build (≈ $4.86k/FTE/week × 3 FTE × 12 weeks). The 14-week envelope includes A0; A0’s $15k is sized as partial-allocation pre-grant work, not a full 3-FTE × 2-week sprint. All figures are
+      - strong [ref=e862]: gross
+      - text: (fully loaded comp, taxes, benefits, overhead). At ~$4.86k/FTE/week the budget assumes either (a) the team is taking ecosystem-rate compensation below senior-crypto market, treating the grant as partial cost-recovery for work they’d do anyway, or (b) part-time allocation per FTE. Team commitments are documented at grant signing. SDF retains the right to descope or restructure if the loading chart proves untenable at week 4 review.
+    - paragraph [ref=e863]:
+      - strong [ref=e864]: Track independence clause
+      - text: "(codified in grant agreement): Track A milestone payments are not contingent on Track B status, and vice versa, except for the A0 prerequisite. Track A continues even if Track B is paused for compliance, A0 fails for"
+      - code [ref=e865]: arts1_mint
+      - text: "-sized circuits, or B7’s MoU does not materialize. Track B is held back if Track A’s audit invalidates the shared verifier."
+    - paragraph [ref=e866]:
+      - strong [ref=e867]: "Compliance reviewer designation:"
+      - text: SDF designates a named internal counsel or external reviewer for Pillar 2 compliance gates C1/C3 (legal opinions). Reviewer name disclosed at grant signing. No tranche release without reviewer sign-off.
+    - separator [ref=e868]
+    - heading "8. Risk and mitigation" [level=2] [ref=e869]
+    - table [ref=e870]:
+      - rowgroup [ref=e871]:
+        - row "# Risk Likelihood Impact Mitigation" [ref=e872]:
+          - columnheader "#" [ref=e873]
+          - columnheader "Risk" [ref=e874]
+          - columnheader "Likelihood" [ref=e875]
+          - columnheader "Impact" [ref=e876]
+          - columnheader "Mitigation" [ref=e877]
+      - rowgroup [ref=e878]:
+        - row "1 UltraHonk gas/budget exceeds 100M-instruction cap for arts1_mint Medium High A0 measurement gate paid as flat pre-grant fee; pre-built arts1_mint_skeleton.nr published before A0 signs; failure paths defined (descope / aggregate / terminate)." [ref=e879]:
+          - cell "1" [ref=e880]
+          - cell "UltraHonk gas/budget exceeds 100M-instruction cap for arts1_mint" [ref=e881]:
+            - text: UltraHonk gas/budget exceeds 100M-instruction cap for
+            - code [ref=e882]: arts1_mint
+          - cell "Medium" [ref=e883]
+          - cell "High" [ref=e884]
+          - cell "A0 measurement gate paid as flat pre-grant fee; pre-built arts1_mint_skeleton.nr published before A0 signs; failure paths defined (descope / aggregate / terminate)." [ref=e885]:
+            - text: A0 measurement gate paid as flat pre-grant fee; pre-built
+            - code [ref=e886]: arts1_mint_skeleton.nr
+            - text: published before A0 signs; failure paths defined (descope / aggregate / terminate).
+        - row "2 Larger circuits (~50+ constraints, dual-ECDSA) untested Medium Medium A0 includes arts1_mint-shaped reference; B0 runs real dual-ECDSA spike; B4 has explicit single-ECDSA descope path." [ref=e887]:
+          - cell "2" [ref=e888]
+          - cell "Larger circuits (~50+ constraints, dual-ECDSA) untested" [ref=e889]
+          - cell "Medium" [ref=e890]
+          - cell "Medium" [ref=e891]
+          - cell "A0 includes arts1_mint-shaped reference; B0 runs real dual-ECDSA spike; B4 has explicit single-ECDSA descope path." [ref=e892]:
+            - text: A0 includes
+            - code [ref=e893]: arts1_mint
+            - text: "-shaped reference; B0 runs real dual-ECDSA spike; B4 has explicit single-ECDSA descope path."
+        - row "3 Recovery proof front-running or replay across accounts/networks/contracts/encodings Medium High auth_hash preimage fully specified §3; on-curve + canonical-limb checks added; replay matrix in A1 covers six vectors." [ref=e894]:
+          - cell "3" [ref=e895]
+          - cell "Recovery proof front-running or replay across accounts/networks/contracts/encodings" [ref=e896]
+          - cell "Medium" [ref=e897]
+          - cell "High" [ref=e898]
+          - cell "auth_hash preimage fully specified §3; on-curve + canonical-limb checks added; replay matrix in A1 covers six vectors." [ref=e899]:
+            - code [ref=e900]: auth_hash
+            - text: preimage fully specified §3; on-curve + canonical-limb checks added; replay matrix in A1 covers six vectors.
+        - row "4 WebAuthn signer evicts ZK signer (stolen-passkey bypass) Medium Critical g2c-recovery-guard-policy scoped to CallContract(self_addr), installed on every signer-mutating ContextRule; differential tests in A4." [ref=e901]:
+          - cell "4" [ref=e902]
+          - cell "WebAuthn signer evicts ZK signer (stolen-passkey bypass)" [ref=e903]
+          - cell "Medium" [ref=e904]
+          - cell "Critical" [ref=e905]
+          - cell "g2c-recovery-guard-policy scoped to CallContract(self_addr), installed on every signer-mutating ContextRule; differential tests in A4." [ref=e906]:
+            - code [ref=e907]: g2c-recovery-guard-policy
+            - text: scoped to
+            - code [ref=e908]: CallContract(self_addr)
+            - text: ", installed on every signer-mutating ContextRule; differential tests in A4."
+        - row "5 VK governance attack (malicious VK swap) Low Catastrophic 3-of-5 multi-sig with named organizational signers (1 SDF + 1 Stellar Foundation external + 1 OZ + 2 community via public RFP); FIDO2 hardware attestation required; 14-day on-chain timelock; opt-in per account; 180-day mandatory rotation; kill-switch (any 1-of-5 pauses); existing accounts pinned to enrolled VK at the verifier-crate level." [ref=e909]:
+          - cell "5" [ref=e910]
+          - cell "VK governance attack (malicious VK swap)" [ref=e911]
+          - cell "Low" [ref=e912]
+          - cell "Catastrophic" [ref=e913]
+          - cell "3-of-5 multi-sig with named organizational signers (1 SDF + 1 Stellar Foundation external + 1 OZ + 2 community via public RFP); FIDO2 hardware attestation required; 14-day on-chain timelock; opt-in per account; 180-day mandatory rotation; kill-switch (any 1-of-5 pauses); existing accounts pinned to enrolled VK at the verifier-crate level." [ref=e914]:
+            - text: 3-of-5 multi-sig with
+            - strong [ref=e915]: named organizational signers
+            - text: (1 SDF + 1 Stellar Foundation external + 1 OZ + 2 community via public RFP);
+            - strong [ref=e916]: FIDO2 hardware attestation required
+            - text: ; 14-day on-chain timelock; opt-in per account; 180-day mandatory rotation;
+            - strong [ref=e917]: kill-switch (any 1-of-5 pauses)
+            - text: ; existing accounts pinned to enrolled VK at the verifier-crate level.
+        - row "6 Browser proving fails on mobile or under cross-origin isolation Medium Medium A5 publishes measured numbers; WASM lazy-loaded only on /recover/; COOP/COEP headers + Cloudflare Worker compatibility validated. arts1_mint mobile mint uses server-side proving via Neftwerk Protocol (institutional co-signer is online anyway)." [ref=e918]:
+          - cell "6" [ref=e919]
+          - cell "Browser proving fails on mobile or under cross-origin isolation" [ref=e920]
+          - cell "Medium" [ref=e921]
+          - cell "Medium" [ref=e922]
+          - cell "A5 publishes measured numbers; WASM lazy-loaded only on /recover/; COOP/COEP headers + Cloudflare Worker compatibility validated. arts1_mint mobile mint uses server-side proving via Neftwerk Protocol (institutional co-signer is online anyway)." [ref=e923]:
+            - text: A5 publishes measured numbers; WASM lazy-loaded only on
+            - code [ref=e924]: /recover/
+            - text: ; COOP/COEP headers + Cloudflare Worker compatibility validated.
+            - strong [ref=e925]:
+              - code [ref=e926]: arts1_mint
+              - text: mobile mint uses server-side proving via Neftwerk Protocol
+            - text: (institutional co-signer is online anyway).
+        - row "7 No audit yet Certain High Two named audit firms (circuit + contract), 4+3 weeks separate scopes, 2-week fix window each, no mainnet without clean reports." [ref=e927]:
+          - cell "7" [ref=e928]
+          - cell "No audit yet" [ref=e929]
+          - cell "Certain" [ref=e930]
+          - cell "High" [ref=e931]
+          - cell "Two named audit firms (circuit + contract), 4+3 weeks separate scopes, 2-week fix window each, no mainnet without clean reports." [ref=e932]
+        - row "8 Pillar 2 securities/AML/sanctions exposure Medium High Track B funds gated on §9 compliance gates; SDF reviewer designated; B1 held until C1 in hand. Track A independent." [ref=e933]:
+          - cell "8" [ref=e934]
+          - cell "Pillar 2 securities/AML/sanctions exposure" [ref=e935]
+          - cell "Medium" [ref=e936]
+          - cell "High" [ref=e937]
+          - cell "Track B funds gated on §9 compliance gates; SDF reviewer designated; B1 held until C1 in hand. Track A independent." [ref=e938]
+        - row "9 BN254 ~100-bit pairing security degrades within RWA token lifespan Low High Migration plan in Appendix A; VK registry supports parallel BLS12-381 verifier." [ref=e939]:
+          - cell "9" [ref=e940]
+          - cell "BN254 ~100-bit pairing security degrades within RWA token lifespan" [ref=e941]
+          - cell "Low" [ref=e942]
+          - cell "High" [ref=e943]
+          - cell "Migration plan in Appendix A; VK registry supports parallel BLS12-381 verifier." [ref=e944]
+        - row "10 OZ stellar-accounts library upgrades break pending recoveries Medium Medium g2c-oz-compat shim crate; storage-layout XDR hash CI regression test; library pinned at A1." [ref=e945]:
+          - cell "10" [ref=e946]
+          - cell "OZ stellar-accounts library upgrades break pending recoveries" [ref=e947]:
+            - text: OZ
+            - code [ref=e948]: stellar-accounts
+            - text: library upgrades break pending recoveries
+          - cell "Medium" [ref=e949]
+          - cell "Medium" [ref=e950]
+          - cell "g2c-oz-compat shim crate; storage-layout XDR hash CI regression test; library pinned at A1." [ref=e951]:
+            - code [ref=e952]: g2c-oz-compat
+            - text: shim crate; storage-layout XDR hash CI regression test; library pinned at A1.
+        - row "11 Cancel-loop attack — stolen passkey blocks legitimate recovery indefinitely Medium High cancel_recovery requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel." [ref=e953]:
+          - cell "11" [ref=e954]
+          - cell "Cancel-loop attack — stolen passkey blocks legitimate recovery indefinitely" [ref=e955]
+          - cell "Medium" [ref=e956]
+          - cell "High" [ref=e957]
+          - cell "cancel_recovery requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel." [ref=e958]:
+            - code [ref=e959]: cancel_recovery
+            - text: requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel.
+        - row "12 TTL archival race — pending-rotation state archived during 30-day window Medium Critical Per-account recovery deposit at enrollment covers ~40 days of TTL extension; complete_recovery fails-closed if rent exhausted; RestoreFootprint ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery)." [ref=e960]:
+          - cell "12" [ref=e961]
+          - cell "TTL archival race — pending-rotation state archived during 30-day window" [ref=e962]
+          - cell "Medium" [ref=e963]
+          - cell "Critical" [ref=e964]
+          - cell "Per-account recovery deposit at enrollment covers ~40 days of TTL extension; complete_recovery fails-closed if rent exhausted; RestoreFootprint ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery)." [ref=e965]:
+            - text: Per-account recovery deposit at enrollment covers ~40 days of TTL extension;
+            - code [ref=e966]: complete_recovery
+            - text: fails-closed if rent exhausted;
+            - code [ref=e967]: RestoreFootprint
+            - text: ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery).
+        - row "13 Pubkey encoding malleability Medium Critical In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (hi*2^128 + lo < secp256r1_modulus); A1 unit tests cover non-canonical encodings as adversarial inputs." [ref=e968]:
+          - cell "13" [ref=e969]
+          - cell "Pubkey encoding malleability" [ref=e970]
+          - cell "Medium" [ref=e971]
+          - cell "Critical" [ref=e972]
+          - cell "In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (hi*2^128 + lo < secp256r1_modulus); A1 unit tests cover non-canonical encodings as adversarial inputs." [ref=e973]:
+            - text: In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (
+            - code [ref=e974]: hi*2^128 + lo < secp256r1_modulus
+            - text: ); A1 unit tests cover non-canonical encodings as adversarial inputs.
+        - row "14 Pre-enrollment squatting — attacker phishes mnemonic before user enrolls, registers commitment first Low High Enrollment binds commitment to account_id; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow)." [ref=e975]:
+          - cell "14" [ref=e976]
+          - cell "Pre-enrollment squatting — attacker phishes mnemonic before user enrolls, registers commitment first" [ref=e977]
+          - cell "Low" [ref=e978]
+          - cell "High" [ref=e979]
+          - cell "Enrollment binds commitment to account_id; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow)." [ref=e980]:
+            - text: Enrollment binds
+            - code [ref=e981]: commitment
+            - text: to
+            - code [ref=e982]: account_id
+            - text: ; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow).
+        - row "15 VK-upgrade UI coercion attack Medium High “Required VK refresh” prompts disallowed in integrator’s-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish VKUpgradeProposed alerts before any wallet defaults to opt-in." [ref=e983]:
+          - cell "15" [ref=e984]
+          - cell "VK-upgrade UI coercion attack" [ref=e985]
+          - cell "Medium" [ref=e986]
+          - cell "High" [ref=e987]
+          - cell "“Required VK refresh” prompts disallowed in integrator’s-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish VKUpgradeProposed alerts before any wallet defaults to opt-in." [ref=e988]:
+            - text: “Required VK refresh” prompts disallowed in integrator’s-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish
+            - code [ref=e989]: VKUpgradeProposed
+            - text: alerts before any wallet defaults to opt-in.
+        - row "16 bb.js supply-chain attack Medium Critical SRI hash for the bb.js bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact." [ref=e990]:
+          - cell "16" [ref=e991]
+          - cell "bb.js supply-chain attack" [ref=e992]
+          - cell "Medium" [ref=e993]
+          - cell "Critical" [ref=e994]
+          - cell "SRI hash for the bb.js bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact." [ref=e995]:
+            - text: SRI hash for the
+            - code [ref=e996]: bb.js
+            - text: bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact.
+        - row "17 Recovery-card QR exfiltration Medium High Recovery card contains C-address only, NEVER the seed. Seed lives on a separate paper artifact never digitized. A5 acceptance criterion for the export tooling." [ref=e997]:
+          - cell "17" [ref=e998]
+          - cell "Recovery-card QR exfiltration" [ref=e999]
+          - cell "Medium" [ref=e1000]
+          - cell "High" [ref=e1001]
+          - cell "Recovery card contains C-address only, NEVER the seed. Seed lives on a separate paper artifact never digitized. A5 acceptance criterion for the export tooling." [ref=e1002]
+        - 'row "18 Recovery-deposit griefing Low Medium Per-account recovery initiation rate-limit: max 3 initiate_recovery per 90-day rolling window." [ref=e1003]':
+          - cell "18" [ref=e1004]
+          - cell "Recovery-deposit griefing" [ref=e1005]
+          - cell "Low" [ref=e1006]
+          - cell "Medium" [ref=e1007]
+          - 'cell "Per-account recovery initiation rate-limit: max 3 initiate_recovery per 90-day rolling window." [ref=e1008]':
+            - text: "Per-account recovery initiation rate-limit: max 3"
+            - code [ref=e1009]: initiate_recovery
+            - text: per 90-day rolling window.
+        - 'row "19 mysoroban.xyz origin compromise Low Critical Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. Out of scope (post-grant): native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth." [ref=e1010]':
+          - cell "19" [ref=e1011]
+          - cell "mysoroban.xyz origin compromise" [ref=e1012]
+          - cell "Low" [ref=e1013]
+          - cell "Critical" [ref=e1014]
+          - 'cell "Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. Out of scope (post-grant): native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth." [ref=e1015]':
+            - text: "Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap."
+            - strong [ref=e1016]: "Out of scope (post-grant):"
+            - text: native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth.
+        - row "20 Kill-switch DoS Low High First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation." [ref=e1017]:
+          - cell "20" [ref=e1018]
+          - cell "Kill-switch DoS" [ref=e1019]
+          - cell "Low" [ref=e1020]
+          - cell "High" [ref=e1021]
+          - cell "First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation." [ref=e1022]
+        - row "21 VK upgrade governance bias Low High SDF + Stellar Foundation external signers treated as one effective vote for collusion analysis only; the on-chain rule is 3-of-5 with the diversified-quorum predicate. Every accepted quorum requires at least one outside-Group-A signature, so SDF+SF collusion still requires OZ or community consent. Documented in A2 governance design + grant agreement." [ref=e1023]:
+          - cell "21" [ref=e1024]
+          - cell "VK upgrade governance bias" [ref=e1025]
+          - cell "Low" [ref=e1026]
+          - cell "High" [ref=e1027]
+          - cell "SDF + Stellar Foundation external signers treated as one effective vote for collusion analysis only; the on-chain rule is 3-of-5 with the diversified-quorum predicate. Every accepted quorum requires at least one outside-Group-A signature, so SDF+SF collusion still requires OZ or community consent. Documented in A2 governance design + grant agreement." [ref=e1028]:
+            - text: SDF + Stellar Foundation external signers treated as one effective vote
+            - emphasis [ref=e1029]: for collusion analysis only
+            - text: ; the on-chain rule is 3-of-5 with the diversified-quorum predicate. Every accepted quorum requires at least one outside-Group-A signature, so SDF+SF collusion still requires OZ or community consent. Documented in A2 governance design + grant agreement.
+    - separator [ref=e1030]
+    - heading "9. Pillar 2 compliance gates" [level=2] [ref=e1031]
+    - paragraph [ref=e1032]:
+      - text: Track B funds gated on the following deliverables from the neftwerk team. Reviewed by
+      - strong [ref=e1033]: a named SDF compliance reviewer
+      - text: (designated at grant signing).
+    - table [ref=e1034]:
+      - rowgroup [ref=e1035]:
+        - row "Gate Deliverable Track B effect" [ref=e1036]:
+          - columnheader "Gate" [ref=e1037]
+          - columnheader "Deliverable" [ref=e1038]
+          - columnheader "Track B effect" [ref=e1039]
+      - rowgroup [ref=e1040]:
+        - row "C1 MSB / NY VTL / EU VASP / MiCA classification opinions for ARTS-1 primary issuance B1 held until C1 in SDF reviewer’s hands" [ref=e1041]:
+          - cell "C1" [ref=e1042]
+          - cell "MSB / NY VTL / EU VASP / MiCA classification opinions for ARTS-1 primary issuance" [ref=e1043]
+          - cell "B1 held until C1 in SDF reviewer’s hands" [ref=e1044]:
+            - strong [ref=e1045]: B1 held until C1 in SDF reviewer’s hands
+        - row "C2 On-chain freeze function pursuant to documented legal process. Implemented as B6 acceptance. Blocking for B6" [ref=e1046]:
+          - cell "C2" [ref=e1047]
+          - cell "On-chain freeze function pursuant to documented legal process. Implemented as B6 acceptance." [ref=e1048]
+          - cell "Blocking for B6" [ref=e1049]
+        - row "C3 Howey opinion for single-edition ARTS-1 tokens, including treatment of enforced royalties; explicit no-fractionalization covenant Blocking for B6, reviewed by SDF reviewer" [ref=e1050]:
+          - cell "C3" [ref=e1051]
+          - cell "Howey opinion for single-edition ARTS-1 tokens, including treatment of enforced royalties; explicit no-fractionalization covenant" [ref=e1052]
+          - cell "Blocking for B6, reviewed by SDF reviewer" [ref=e1053]
+        - 'row "C4 Geographic scoping plan: Reg-S-style geofence during grant period; KYC threshold for secondary transfers above $X Blocking for B6" [ref=e1054]':
+          - cell "C4" [ref=e1055]
+          - 'cell "Geographic scoping plan: Reg-S-style geofence during grant period; KYC threshold for secondary transfers above $X" [ref=e1056]'
+          - cell "Blocking for B6" [ref=e1057]
+        - row "C5 Estate-planning disclosure flow at enrollment Blocking for B7" [ref=e1058]:
+          - cell "C5" [ref=e1059]
+          - cell "Estate-planning disclosure flow at enrollment" [ref=e1060]
+          - cell "Blocking for B7" [ref=e1061]
+    - paragraph [ref=e1062]: If any gate is not met by week 9, Track B is paused; Track A continues unaffected.
+    - paragraph [ref=e1063]:
+      - strong [ref=e1064]: "Branding:"
+      - text: SDF logo and “funded by SDF” language do not appear on Pillar 2 marketing pages until C1–C4 are implemented.
+    - separator [ref=e1065]
+    - heading "10. Why bundle, expanded" [level=2] [ref=e1066]
+    - paragraph [ref=e1067]: "The engineering case for one grant over two:"
+    - list [ref=e1068]:
+      - listitem [ref=e1069]:
+        - strong [ref=e1070]: One verifier crate
+        - text: (
+        - code [ref=e1071]: ultrahonk-soroban-verifier
+        - text: ) serves both pillars.
+      - listitem [ref=e1072]:
+        - strong [ref=e1073]: One browser proving harness
+        - text: (bb.js + WebWorker +
+        - code [ref=e1074]: /recover/
+        - text: route).
+      - listitem [ref=e1075]:
+        - strong [ref=e1076]: One Poseidon2 parameter set
+        - text: ", domain-separated per use, audited once."
+      - listitem [ref=e1077]:
+        - strong [ref=e1078]: One VK registry + one governance
+        - text: mechanism.
+      - listitem [ref=e1079]:
+        - strong [ref=e1080]: One audit RFP
+        - text: covering circuits + contracts + integration.
+    - paragraph [ref=e1081]: We deliver a cross-repo dependency graph as the first artifact of A1.
+    - paragraph [ref=e1082]:
+      - text: Bundling saves engineering time
+      - strong [ref=e1083]: only because
+      - text: Track A and Track B share a substrate. They do not share business logic, end-users, regulatory posture, or success criteria. Disbursement is therefore independent (§7).
+    - separator [ref=e1084]
+    - heading "11. Universality" [level=2] [ref=e1085]
+    - paragraph [ref=e1086]: "The recovery circuit is a key-rotation primitive any Soroban Smart Account can adopt; neftwerk is the second consumer, not the only one. Concrete future consumers:"
+    - list [ref=e1087]:
+      - listitem [ref=e1088]: Custody wallets needing non-custodial paper-mnemonic recovery
+      - listitem [ref=e1089]: RWA issuers (real estate, supply-chain, carbon credits) needing ownership privacy with provable transfer history
+      - listitem [ref=e1090]: Compliance-sensitive institutions wanting counterparty privacy without surrendering provability
+    - paragraph [ref=e1091]:
+      - text: A6 deliverable includes a one-page
+      - strong [ref=e1092]: integrator’s guide
+      - text: ": the minimal interface a Soroban contract has to implement to consume the ZK recovery primitive."
+      - strong [ref=e1093]: At least one external wallet integrator’s signed integration agreement is required at A6.
+    - separator [ref=e1094]
+    - 'heading "12. Roadmap: fast-recovery path (post-grant)" [level=2] [ref=e1095]'
+    - paragraph [ref=e1096]:
+      - text: "The 30-day timelock is incompatible with high-velocity collector use cases (insurance renewals, museum loans, estate updates). Post-grant deliverable: a Shamir-style fast-recovery path with the threshold scheme"
+      - code [ref=e1097]: "(collector + 1-of-{gallery, Neftwerk})"
+      - text: — collector’s share is mandatory, foreclosing institutional-only recovery. Additive on top of the current recovery primitive; no breaking change.
+    - separator [ref=e1098]
+    - heading "13. References / repo file map" [level=2] [ref=e1099]
+    - heading "g2c" [level=3] [ref=e1100]
+    - list [ref=e1101]:
+      - listitem [ref=e1102]:
+        - code [ref=e1103]: g2c/APPLICATION.md
+      - listitem [ref=e1104]:
+        - code [ref=e1105]: g2c/ARCHITECTURE.md
+      - listitem [ref=e1106]:
+        - code [ref=e1107]: g2c/contracts/smart-account/src/contract.rs
+      - listitem [ref=e1108]:
+        - code [ref=e1109]: g2c/contracts/factory/src/contract.rs
+      - listitem [ref=e1110]:
+        - code [ref=e1111]: g2c/contracts/webauthn-verifier/src/contract.rs
+    - heading "ZK substrate / proof-of-concept" [level=3] [ref=e1112]
+    - list [ref=e1113]:
+      - listitem [ref=e1114]:
+        - code [ref=e1115]: zk/rs-soroban-ultrahonk/README.md
+      - listitem [ref=e1116]:
+        - code [ref=e1117]: zk/rs-soroban-ultrahonk/ultrahonk-soroban-verifier/src/
+      - listitem [ref=e1118]:
+        - code [ref=e1119]: zk/rs-soroban-ultrahonk/<nullifier_set_primitive>/
+        - text: (renamed before kickoff)
+      - listitem [ref=e1120]:
+        - code [ref=e1121]: zk/soroban-zk-demo/README.md
+        - text: and
+        - code [ref=e1122]: test_e2e.sh
+      - listitem [ref=e1123]:
+        - code [ref=e1124]: zk/soroban-zk-demo/circuits/ownership_proof/src/main.nr
+        - text: (to be brought into spec at A0)
+    - heading "Neftwerk" [level=3] [ref=e1125]
+    - list [ref=e1126]:
+      - listitem [ref=e1127]:
+        - code [ref=e1128]: zk/neftwerk/Neftwerk_White_Paper_Summary.md
+      - listitem [ref=e1129]:
+        - code [ref=e1130]: zk/neftwerk/Neftwerk_Creation_Privacy_Flow.md
+      - listitem [ref=e1131]:
+        - code [ref=e1132]: zk/neftwerk/Neftwerk_Sale_Privacy_Flow.md
+      - listitem [ref=e1133]:
+        - code [ref=e1134]: zk/neftwerk/milestones.md
+      - listitem [ref=e1135]:
+        - code [ref=e1136]: zk/neftwerk/review-technical.md
+      - listitem [ref=e1137]:
+        - code [ref=e1138]: zk/neftwerk/review-legal.md
+      - listitem [ref=e1139]:
+        - code [ref=e1140]: zk/neftwerk/review-gallery.md
+    - heading "External" [level=3] [ref=e1141]
+    - list [ref=e1142]:
+      - listitem [ref=e1143]:
+        - text: "Noir:"
+        - link "https://noir-lang.org/" [ref=e1144] [cursor=pointer]:
+          - /url: https://noir-lang.org/
+      - listitem [ref=e1145]:
+        - text: "Barretenberg / UltraHonk:"
+        - link "https://github.com/AztecProtocol/aztec-packages" [ref=e1146] [cursor=pointer]:
+          - /url: https://github.com/AztecProtocol/aztec-packages
+      - listitem [ref=e1147]:
+        - code [ref=e1148]: noir-bigcurve
+        - text: ","
+        - code [ref=e1149]: noir_ecdsa
+        - text: ":"
+        - code [ref=e1150]: noir-lang
+        - text: org
+      - listitem [ref=e1151]:
+        - text: "OpenZeppelin Stellar Contracts:"
+        - code [ref=e1152]: stellar-contracts-OZ/
+    - separator [ref=e1153]
+    - heading "Appendix A — Cryptographic parameters" [level=2] [ref=e1154]
+    - heading "A.1 — Encoding spec" [level=3] [ref=e1155]
+    - paragraph [ref=e1156]: "All Field-bound inputs to Poseidon2 follow these rules:"
+    - list [ref=e1157]:
+      - listitem [ref=e1158]:
+        - strong [ref=e1159]: 65-byte uncompressed P-256 pubkey
+        - text: (
+        - code [ref=e1160]: 0x04 ‖ x ‖ y
+        - text: "): split into 5 limbs of ≤128 bits via big-endian decomposition. Order:"
+        - code [ref=e1161]: (prefix_byte, x_hi, x_lo, y_hi, y_lo)
+        - text: . Each limb range-checked
+        - code [ref=e1162]: < 2^128
+        - text: "in-circuit. Composition check:"
+        - code [ref=e1163]: prefix == 0x04
+        - text: and
+        - code [ref=e1164]: x = x_hi * 2^128 + x_lo
+        - text: and
+        - code [ref=e1165]: y = y_hi * 2^128 + y_lo
+        - text: and
+        - code [ref=e1166]: (x, y)
+        - text: lies on secp256r1.
+      - listitem [ref=e1167]:
+        - strong [ref=e1168]:
+          - code [ref=e1169]: account_id
+        - text: (Stellar StrKey /
+        - code [ref=e1170]: BytesN<32>
+        - text: "): 32 bytes interpreted as 2 BN254 field elements ("
+        - code [ref=e1171]: hi
+        - text: ","
+        - code [ref=e1172]: lo
+        - text: ) via 16-byte big-endian split. Range-checked.
+      - listitem [ref=e1173]:
+        - strong [ref=e1174]:
+          - code [ref=e1175]: network_passphrase
+        - text: "(variable string): SHA-256 hashed, then encoded as 2 BN254 field elements via the same 16-byte split."
+      - listitem [ref=e1176]:
+        - strong [ref=e1177]:
+          - code [ref=e1178]: contract_addr
+        - text: (Stellar contract address /
+        - code [ref=e1179]: BytesN<32>
+        - text: "): same as"
+        - code [ref=e1180]: account_id
+        - text: .
+      - listitem [ref=e1181]:
+        - strong [ref=e1182]:
+          - code [ref=e1183]: nonce
+        - text: ": 8 bytes BE → 1 Field."
+      - listitem [ref=e1184]:
+        - strong [ref=e1185]:
+          - code [ref=e1186]: timelock_duration
+        - text: ": 4 bytes BE seconds → 1 Field."
+      - listitem [ref=e1187]:
+        - strong [ref=e1188]:
+          - code [ref=e1189]: token_id
+        - text: ": 32 bytes → 2 Field elements (16-byte split)."
+    - heading "A.2 — Domain separators" [level=3] [ref=e1190]
+    - list [ref=e1191]:
+      - listitem [ref=e1192]:
+        - code [ref=e1193]: domain_sep_commitment = Poseidon2("g2c-recovery-v1-commitment")
+      - listitem [ref=e1194]:
+        - code [ref=e1195]: domain_sep_recovery = Poseidon2("g2c-recovery-v1-auth-hash")
+      - listitem [ref=e1196]:
+        - code [ref=e1197]: domain_sep_cancel = Poseidon2("g2c-recovery-v1-cancel-hash")
+      - listitem [ref=e1198]:
+        - code [ref=e1199]: domain_sep_arts1_mint = Poseidon2("arts1-mint-v1")
+      - listitem [ref=e1200]:
+        - code [ref=e1201]: domain_sep_arts1_own = Poseidon2("arts1-ownership-v1")
+      - listitem [ref=e1202]:
+        - code [ref=e1203]: domain_sep_arts1_rec = Poseidon2("arts1-recovery-v1")
+      - listitem [ref=e1204]:
+        - code [ref=e1205]: domain_sep_nullifier = Poseidon2("nullifier-set-primitive-v1")
+    - paragraph [ref=e1206]:
+      - text: All domain separators are passed as the
+      - strong [ref=e1207]: first
+      - text: input element of every Poseidon2 call. The Aztec Poseidon2 sponge is multi-input-collision-resistant under standard assumptions.
+    - heading "A.3 — Other parameters" [level=3] [ref=e1208]
+    - list [ref=e1209]:
+      - listitem [ref=e1210]:
+        - strong [ref=e1211]: Curve.
+        - text: BN254 (alt_bn128), 254-bit prime field. ~100-bit pairing security.
+      - listitem [ref=e1212]:
+        - strong [ref=e1213]: Migration plan.
+        - text: VK registry supports parallel BLS12-381 verifier deployment without disrupting BN254-pinned accounts. BLS12-381 prototype committed as post-grant deliverable; full migration estimated 2027–2028.
+      - listitem [ref=e1214]:
+        - strong [ref=e1215]: HKDF.
+        - text: SHA-256 PRF;
+        - code [ref=e1216]: ikm = BIP-39 seed
+        - text: ","
+        - code [ref=e1217]: salt = network_passphrase
+        - text: (raw string),
+        - code [ref=e1218]: info = "g2c-recovery-v1" ‖ account_id
+        - text: (33 bytes), output length = 32 bytes, then reduced modulo BN254 scalar order. Bias from naive
+        - code [ref=e1219]: mod q
+        - text: is ~2⁻²⁵² — acceptable.
+      - listitem [ref=e1220]:
+        - strong [ref=e1221]: Proof system.
+        - text: UltraHonk via Barretenberg; Fiat-Shamir, Sumcheck, Shplonk.
+      - listitem [ref=e1222]:
+        - strong [ref=e1223]: Sizes (measured).
+        - text: VK ≈ 1.9 KB, proof ≈ 3.7 KB.
+      - listitem [ref=e1224]:
+        - strong [ref=e1225]: G2 SRS.
+        - text: Aztec’s powers-of-tau ceremony output, hardcoded in
+        - code [ref=e1226]: ec.rs:7-27
+        - text: .
+    - separator [ref=e1227]
+    - heading "Appendix B — Prior art" [level=2] [ref=e1228]
+    - list [ref=e1229]:
+      - listitem [ref=e1230]:
+        - strong [ref=e1231]: Semaphore-style group-membership patterns.
+        - text: Source of the commit-then-prove + nullifier-set pattern.
+      - listitem [ref=e1232]:
+        - strong [ref=e1233]: Aztec Protocol.
+        - text: UltraHonk’s home.
+      - listitem [ref=e1234]:
+        - strong [ref=e1235]: OpenZeppelin Stellar SmartAccount.
+        - text: Verifier-per-signer + Policy pattern.
+      - listitem [ref=e1236]:
+        - strong [ref=e1237]: BIP-39.
+        - text: Mnemonic format for offline seed storage.
+      - listitem [ref=e1238]:
+        - strong [ref=e1239]: Argent / Safe wallet recovery.
+        - text: Reference for timelock + guardian patterns; we deliberately use cryptographic guardianship instead of social.
+    - generic [ref=e1240]:
+      - generic [ref=e1241]:
+        - link "sdf-zk-proposal" [ref=e1242] [cursor=pointer]:
+          - /url: https://github.com/theahaco/sdf-zk-proposal
+        - text: is maintained by
+        - link "theahaco" [ref=e1243] [cursor=pointer]:
+          - /url: https://github.com/theahaco
+        - text: .
+      - generic [ref=e1244]:
+        - text: This page was generated by
+        - link "GitHub Pages" [ref=e1245] [cursor=pointer]:
+          - /url: https://pages.github.com
+        - text: .
