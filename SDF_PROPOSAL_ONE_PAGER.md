@@ -33,10 +33,10 @@ One Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x substrate. One verifier 
 
 | Track | Scope | Tranches (10/20/30/40) | Total |
 |---|---|---|---|
-| **A0 (shared)** | Pre-grant Soroban gas/CPU benchmark gate. **Pre-A0 (no fee): publish `arts1_mint_skeleton.nr` gate count.** Then A0a $15k (testnet `verify_proof` numbers + Policy-with-cross-call benchmark + on-disk circuit aligned to spec) and A0b $15k (Groth16 comparison + browser benchmarks on iPhone 14 / Pixel 7 / 2020 MacBook Air) | $30k split 50/50 | $30k |
-| **Track A — g2c recovery** | A1 spec + g2c-OZ shim → A2 verifier + named-org VK multi-sig + recovery-controller + recovery-guard-policy → A4 integration + cancel-loop tests → A5 browser UX + recovery-card → A6 audit-ready freeze + mainnet + signed integrator agreement | $150k tranched | $150k |
-| **Track B — neftwerk privacy** | B0–B7, gated on A0 pass + Pillar 2 compliance gates reviewed by a named SDF reviewer (B1 held until C1 in hand) | $200k tranched | $200k |
-| **Total** | 14 weeks, ~3 FTE | | **$380k** |
+| **A0 (shared)** | Pre-grant Soroban gas/CPU benchmark gate. **Pre-A0 (no fee): publish `arts1_mint_skeleton.nr` gate count.** Then A0a $7.5k (testnet `verify_proof` numbers + Policy-with-cross-call benchmark + on-disk circuit aligned to spec) and A0b $7.5k (Groth16 comparison + browser benchmarks on iPhone 14 / Pixel 7 / 2020 MacBook Air) | $15k split 50/50 | $15k |
+| **Track A — g2c recovery** | A1 spec + g2c-OZ shim → A2 verifier + named-org VK multi-sig + recovery-controller + recovery-guard-policy → A4 integration + cancel-loop tests → A5 browser UX + recovery-card → A6 audit-ready freeze + mainnet + signed integrator agreement | $75k tranched | $75k |
+| **Track B — neftwerk privacy** | B0–B7, gated on A0 pass + Pillar 2 compliance gates reviewed by a named SDF reviewer (B1 held until C1 in hand) | $100k tranched | $100k |
+| **Total** | 14 weeks, ~3 FTE | | **$190k** |
 
 Audit credits requested separately from SDF's standard pool: **circuit audit** (zkSecurity / Veridise / Spearbit ZK) and **contract audit** (OtterSec / Trail of Bits / Halborn) named separately, with a 4-week circuit freeze and 3-week contract freeze.
 
