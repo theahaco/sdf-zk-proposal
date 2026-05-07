@@ -112,7 +112,7 @@ Six steps. (1)–(2) at SmartAccount enrollment; (3)–(6) on recovery.
      Poseidon2(domain_sep_commitment, owner_secret) == commitment
      auth_hash == Poseidon2(domain_sep_recovery, account_id, network_passphrase, contract_addr,
                             limb0, limb1, limb2, limb3, limb4, nonce, timelock_duration)
-     // Pubkey integrity (NEW IN v3):
+     // Pubkey integrity:
      each_limb < 2^128                                // range check
      limbs_compose_canonically_to_65_bytes            // canonical decomposition
      point_on_secp256r1(decompressed_pubkey)          // on-curve check
@@ -229,17 +229,15 @@ If the actual `arts1_mint` cost exceeds either bound, SDF and team decide betwee
 |---|---|---|---|
 | A1 | Spec doc + Noir circuits (recovery + cancel-proof) | 2–4 | Single PDF pinning: Poseidon2 round constants by SHA-256; **`noir-bigcurve` and `noir_ecdsa` commit hashes pinned**; limb canonicalization rules + on-curve check spec; `auth_hash` byte-encoding; HKDF parameters; field-reduction rule; cancellation-hash spec; security argument (reduction sketch); replay matrix (account / network / contract / nonce / token / encoding). Recovery + cancel-proof circuits compile; replay/cross-account/cross-network/canonical-encoding unit tests pass. **`g2c-oz-compat` shim crate published** with storage-layout XDR hash regression suite in CI; **`OZ_UPSTREAM_DIFF.md` published** documenting all consumer-side divergences. **Verifier trait fully implemented** (`verify`, `canonicalize_key`, `batch_canonicalize_key`); `canonicalize_key` malleability fuzzer in tests. **`pnpm test:parity` CI test** running round-trip across `bb.js` prover, JS Poseidon2 commitment generator, and Soroban verifier; covers all 7 domain separators with adversarial vectors (cross-implementation drift kills recovery silently). OZ `stellar-accounts` commit pinned. |
 | A2 | Verifier crate v2 + VK governance + recovery-controller + recovery-guard-policy | 4–7 | `ultrahonk-soroban-verifier` v2 with VK registry (circuit_id → VK). **VK governance: 3-of-5 multi-sig with diversified-quorum rule across three groups**: Group A (Stellar-aligned): 1 SDF + 1 Stellar Foundation external (independently selected; treated as a single effective vote for collusion analysis). Group B (auditing org): 1 OpenZeppelin. Group C (community): 2 signers via a **two-stage public RFP** (open nomination → 30-day public comment → on-chain attestation by Group A + Group B). **Quorum rule: any 3-of-5 quorum MUST include at least 1 signer from Group A AND at least 1 signer from {B ∪ C}**. This forecloses both an all-Stellar quorum (Stellar-only collusion impossible — Group B or C must consent) AND an all-non-Stellar quorum (OZ + community alone cannot push a VK upgrade). All keys **FIDO2 + WebAuthn attestation required, with accepted AAGUIDs published** (YubiKey 5 series, SoloKeys, T-series; HSM-only operation). **180-day mandatory key rotation** verified on-chain. **Kill-switch with anti-DoS:** any 1-of-5 can pause a pending upgrade for 7 days; a second pause within 30 days requires 4-of-5 to overcome (prevents one compromised signer from indefinitely DoS'ing emergency rotation). 14-day timelock on upgrades, opt-in per account, orphan-token migration ceremony documented. `g2c-recovery-controller` deployed to testnet with full state machine + state-machine PDF + storage-layout diagram + concrete `Context` example for `complete_recovery` per §3 sequence diagram. `g2c-recovery-guard-policy` deployed; per-rule attachment audit produced. **Controller upgrade governance: same multi-sig + same diversified-quorum rule + same timelock + same opt-in.** |
-| A3 | Atomic enrollment-time registration | 6–7 | g2c-factory `create_account` accepts pre-registered ZK signer at construction with `Vec<Signer>`, atomically registers commitment with recovery-controller, and enforces `timelock_duration ≥ 7 days` on enrollment. Re-scoped from "multi-signer factory" to atomic enrollment per OZ-maintainer review. |
+| A3 | Atomic enrollment-time registration | 6–7 | g2c-factory `create_account` accepts pre-registered ZK signer at construction with `Vec<Signer>`, atomically registers commitment with recovery-controller, and enforces `timelock_duration ≥ 7 days` on enrollment. Re-scoped from "multi-signer factory" to atomic enrollment. |
 | A4 | SmartAccount integration + signer-removal guard + cancel-loop differential tests | 7–9 | OZ `Policy` correctly scoped to `CallContract(self_addr)` and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering. |
 | A5 | Browser proving UX + recovery-card export | 8–10 | <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection. **Recovery-card export at enrollment** (printable QR + 24-word phrase). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). |
 | A6 | Audit-ready freeze + mainnet launch + integrator signed | 10–14 | All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window each. Mainnet deployment with **at least one external wallet integrator's signed integration agreement** (not LOI). |
 
 ### Track B — neftwerk ZK privacy ($200k tranched 10/20/30/40)
 
-**Pillar 2 funding gated on Pillar 2 compliance gates (§11) AND A0 pass. B1 disbursement held until C1 legal opinions are in SDF's hands** (per CFO review).
+**Pillar 2 funding gated on Pillar 2 compliance gates (§11) AND A0 pass. B1 disbursement held until C1 legal opinions are in SDF's hands.**
 
-| # | Milestone | Weeks | Acceptance criteria |
-|---|---|---|---|
 **Tranche-payment milestones are bolded.** Other milestones are unpaid prerequisites whose work is rolled into the next paid tranche's release.
 
 | # | Milestone | Weeks | Acceptance criteria |
@@ -370,7 +368,7 @@ The recovery circuit is a key-rotation primitive any Soroban Smart Account can a
 - RWA issuers (real estate, supply-chain, carbon credits) needing ownership privacy with provable transfer history
 - Compliance-sensitive institutions wanting counterparty privacy without surrendering provability
 
-A6 deliverable includes a one-page **integrator's guide**: the minimal interface a Soroban contract has to implement to consume the ZK recovery primitive. **At least one external wallet integrator's signed integration agreement is required at A6** (upgraded from LOI per CFO review).
+A6 deliverable includes a one-page **integrator's guide**: the minimal interface a Soroban contract has to implement to consume the ZK recovery primitive. **At least one external wallet integrator's signed integration agreement is required at A6**.
 
 ---
 
