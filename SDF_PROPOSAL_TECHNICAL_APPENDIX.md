@@ -7,7 +7,8 @@ Companion to `SDF_PROPOSAL_ONE_PAGER.md`. This is for the SDF protocol team and 
 - v3: applied 14 must-fix items from second 10-agent review
 - v4: applied HIGH findings from third (focused) review — sequence diagram for `complete_recovery`, recovery-card content rule, rate-limit on initiations, kill-switch DoS mitigation, OZ_UPSTREAM_DIFF.md and `pnpm test:parity` as A1 deliverables, post-grant Shamir constraint
 - v5: VK governance diversified-quorum rule (forecloses both Stellar-only and OZ+community-only collusion paths)
-- v6 (current): pre-A0 skeleton hard precondition; A0 cash-flow as reimbursement (not advance); per-FTE loading chart; budget gross-loading clarified; B7 split into B7a (in-grant) + B7b (post-grant retention report); pass criterion calibrated against measured skeleton not vapor
+- v6: pre-A0 skeleton hard precondition; A0 cash-flow as reimbursement (not advance); per-FTE loading chart; budget gross-loading clarified; B7 split into B7a (in-grant) + B7b (post-grant retention report); pass criterion calibrated against measured skeleton not vapor
+- v7 (current): A0 pass criterion tightened to AND-bound (1.5× skeleton AND ≤80M instructions); Track B milestone numbering made contiguous (B0–B7b) with explicit unpaid-prerequisite vs paid-tranche labels; "30–40% sharing" claim reconciled with loading chart (substrate-concentrated, not engineering-hours)
 
 ---
 
@@ -18,7 +19,7 @@ We are proposing a single coordinated grant that lands two ZK applications on St
 - **Pillar 1 — g2c: ZK account recovery as a universal primitive.** A BIP-39 seed-derived `owner_secret` is committed on-chain at enrollment as `Poseidon2(owner_secret)`. On recovery, a Noir/UltraHonk proof bound to a fully-specified `auth_hash` triggers a 30-day time-locked key rotation through a new `g2c-recovery-controller` contract. During the timelock window the WebAuthn signer is forbidden from removing the ZK signer; cancellation requires both WebAuthn and a fresh proof of seed-knowledge, with a hard cap of 2 cancels per recovery initiation.
 - **Pillar 2 — neftwerk: ZK privacy as a sector validator.** Three Noir circuits (`arts1_mint`, `arts1_ownership`, `arts1_recovery`) implement "private title, public provenance" for the ARTS-1 token standard, with the recovery circuit being the same primitive as Pillar 1.
 
-Framing: **Universal primitive in g2c + sector application in neftwerk.** The shared substrate is **Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x**, and we estimate **~30–40% engineering shared** across the two tracks. Track A and Track B funds are disbursed independently; an A0 benchmark failure or a Pillar 2 compliance-gate slip does not affect Track A.
+Framing: **Universal primitive in g2c + sector application in neftwerk.** The shared substrate is **Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x**, and we estimate **~30–40% engineering shared** across the two tracks — concentrated in *substrate* work (verifier crate, browser SDK, Poseidon2 instantiation, audit RFP, OZ shim) rather than co-developed circuit/contract code. The per-FTE loading chart in §8 reflects this: tracks are largely time-sliced across people, with the substrate items shared once at the boundary. Track A and Track B funds are disbursed independently; an A0 benchmark failure or a Pillar 2 compliance-gate slip does not affect Track A.
 
 ---
 
@@ -221,7 +222,14 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 | A0a | $15k | (1) On-disk `ownership_proof` circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for `verify_proof` on testnet for: simple-1-input, Fibonacci-chain, and the `arts1_mint`-shaped reference circuit (using the pre-A0 skeleton). (3) Policy-with-cross-contract-call benchmark (the `g2c-recovery-guard-policy` + controller cross-call cost). |
 | A0b | $15k | (1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for `arts1_mint` (expected: server-side mint required). |
 
-**Pass criterion (calibrated against pre-A0 skeleton number, not vapor):** `arts1_mint`-shaped circuit verification fits within `max(70M instructions, 1.5 × measured_skeleton_cost)` on Soroban — whichever is *more permissive* — AND Policy-with-cross-call adds <10M instructions overhead per `__check_auth`. The 70M floor is a sanity check; the 1.5× multiplier accommodates the gap between skeleton (no real binding) and the full circuit. If actual `arts1_mint` cost lands above this threshold, SDF and team decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate. **If pre-A0 skeleton itself measures above 50M instructions, the proposal is restructured before grant signing — Track B's `arts1_mint` is descoped to single-ECDSA in scope before any funds are committed.**
+**Pass criterion (calibrated against pre-A0 skeleton number, not vapor):** `arts1_mint`-shaped circuit verification cost on Soroban must satisfy **BOTH**:
+
+- **Design assumption check:** cost ≤ `1.5 × measured_skeleton_cost` (the 1.5× multiplier accommodates the gap between skeleton with dummy Poseidon2 and the full circuit with real binding/provenance work)
+- **Operational headroom check:** cost ≤ **80M instructions** (= 80% of Soroban's 100M-instruction cap; leaves 20M for auth, storage, and policy cross-call overhead under load)
+
+AND Policy-with-cross-call adds <10M instructions overhead per `__check_auth`. **Pass = both bounds met.**
+
+If the actual `arts1_mint` cost exceeds either bound, SDF and team decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate. **If pre-A0 skeleton itself measures above 50M instructions, the 1.5× bound exceeds 75M which collides with the 80M ceiling — Track B's `arts1_mint` is descoped to single-ECDSA in scope before any funds are committed.**
 
 ### Track A — g2c ZK recovery ($150k tranched 10/20/30/40)
 
@@ -240,14 +248,19 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 | # | Milestone | Weeks | Acceptance criteria |
 |---|---|---|---|
-| B0 | Coinflow ↔ Soroban transaction-attachment spike + dual-ECDSA feasibility | 2–3 | Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton). |
-| B1 | Three-circuit spec | 3–5 | Spec PDF following A1 format. All three circuits compile. **C1 legal opinions delivered to SDF reviewer** as gate condition. |
-| B2 | `arts1_ownership` | 5–7 | Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass. |
-| B4 | `arts1_mint` | 7–10 | Compiled circuit; verification cost within A0 budget; **descope to single-ECDSA collector signature** if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live. |
-| B5 | `arts1_recovery` (parameterized A1 primitive) | 9–10 | Same Noir circuit pattern as A1, parameterized for `token_id`. |
-| B6 | ARTS-1 token contract + browser pipeline + royalty enforcement + on-chain freeze | 10–13 | E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. **C2 on-chain freeze function for legal process implemented and tested.** |
-| B7a | ARTS-1 pilot launch (mainnet or testnet) | 13–14 | Conditional on signed MoU at A0 completion. **Acceptance:** pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live + **7-day in-grant retention metric** (not 30-day, which exceeds grant period). |
-| B7b (post-grant) | 30-day retention report | week 17–18 | Disbursed conditionally **after grant close** as a $0 delta — telemetry already running, report generation only. SDF may withhold a $5k portion of B7a's tranche pending B7b delivery if mainnet pilot launched. |
+**Tranche-payment milestones are bolded.** Other milestones are unpaid prerequisites whose work is rolled into the next paid tranche's release.
+
+| # | Milestone | Weeks | Acceptance criteria |
+|---|---|---|---|
+| B0 | Coinflow ↔ Soroban transaction-attachment spike + dual-ECDSA feasibility | 2–3 | Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton). *Unpaid; rolled into B1.* |
+| **B1** *(10% — $20k)* | Three-circuit spec | 3–5 | Spec PDF following A1 format. All three circuits compile. **C1 legal opinions delivered to SDF reviewer** as gate condition. |
+| B2 | `arts1_ownership` | 5–7 | Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass. *Unpaid; rolled into B4.* |
+| B3 | `arts1_recovery` (parameterized A1 primitive) | 7–8 | Same Noir circuit pattern as A1, parameterized for `token_id`. *Unpaid; rolled into B4.* |
+| **B4** *(20% — $40k)* | `arts1_mint` | 7–10 | Compiled circuit; verification cost within A0 budget; **descope to single-ECDSA collector signature** if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live. |
+| B5 | Browser pipeline + royalty enforcement scaffolding | 10–12 | Royalty-locked secondary-transfer logic compiles on testnet. *Unpaid; rolled into B6.* |
+| **B6** *(30% — $60k)* | ARTS-1 token contract + on-chain freeze | 10–13 | E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. **C2 on-chain freeze function for legal process implemented and tested.** |
+| **B7a** *(40% — $80k less $5k withhold if mainnet)* | ARTS-1 pilot launch (mainnet or testnet) | 13–14 | Conditional on signed MoU at A0 completion. **Acceptance:** pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live + **7-day in-grant retention metric** (not 30-day, which exceeds grant period). |
+| B7b *(post-grant — $0 delta or released $5k withhold)* | 30-day retention report | week 17–18 | Disbursed conditionally **after grant close**: telemetry already running, report generation only. SDF releases the $5k withhold from B7a on receipt of B7b (only applicable if mainnet pilot launched at B7a). |
 
 ### Shared dependencies
 
@@ -265,7 +278,7 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 |---|---|---|
 | A0 — pre-grant benchmark (split 50/50) | $30k | A0a $15k / A0b $15k on completion of each half |
 | Track A — g2c ZK recovery | $150k | 10% / 20% / 30% / 40% on A1 / A2 / A4 / A6 |
-| Track B — neftwerk ZK privacy | $200k | 10% / 20% / 30% / 40% on B1 / B4 / B6 / B7, gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer's hands |
+| Track B — neftwerk ZK privacy | $200k | 10% / 20% / 30% / 40% on **B1 / B4 / B6 / B7a** (B7b is post-grant, $0 delta with $5k withhold from B7a if mainnet launched), gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer's hands |
 | **Total** | **$380k** | |
 
 **Audit credits** requested separately from SDF's standard pool. Two auditors, two scopes:
