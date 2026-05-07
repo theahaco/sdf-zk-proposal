@@ -44,34 +44,34 @@ Audit credits requested separately from SDF's standard pool: **circuit audit** (
 ```mermaid
 flowchart LR
     subgraph Browser["Browser (private)"]
-        Seed["BIP-39 seed<br/><i>paper, never digital</i>"]
-        OS["owner_secret<br/>= HKDF(seed, …)"]
-        Prover["Noir/UltraHonk<br/>prover (bb.js WASM)"]
-        Seed -. derived locally .-> OS
+        Seed["BIP-39 seed<br/>(paper, never digital)"]
+        OS["owner_secret<br/>= HKDF(seed, ...)"]
+        Prover["Noir / UltraHonk prover<br/>(bb.js WASM)"]
+        Seed -.->|derived locally| OS
         OS --> Prover
     end
 
     subgraph Soroban["Stellar / Soroban"]
-        Factory[g2c-factory]
-        SA[g2c-smart-account]
-        Verifier[g2c-zk-recovery-verifier]
-        Controller[g2c-recovery-controller]
-        Policy[g2c-recovery-guard-policy]
-        UH[ultrahonk-soroban-verifier]
-        OZ[(OZ stellar-accounts<br/>via g2c-oz-compat shim)]
+        Factory["g2c-factory"]
+        SA["g2c-smart-account"]
+        Verifier["g2c-zk-recovery-verifier"]
+        Controller["g2c-recovery-controller"]
+        Policy["g2c-recovery-guard-policy"]
+        UH["ultrahonk-soroban-verifier"]
+        OZ["OZ stellar-accounts<br/>(via g2c-oz-compat shim)"]
 
-        Factory -- atomic enroll --> SA
-        Factory -- registers commitment --> Controller
-        SA -- __check_auth --> OZ
-        OZ -- dispatches --> Verifier
-        OZ -- enforces --> Policy
-        Verifier -- cross-call --> UH
-        Policy -. reads pending state .-> Controller
-        Controller -- inner calls<br/>add/remove signer --> SA
+        Factory -->|atomic enroll| SA
+        Factory -->|registers commitment| Controller
+        SA -->|__check_auth| OZ
+        OZ -->|dispatches| Verifier
+        OZ -->|enforces| Policy
+        Verifier -->|cross-call| UH
+        Policy -.->|reads pending state| Controller
+        Controller -->|inner calls<br/>add/remove signer| SA
     end
 
-    Prover -. proof + auth_hash .-> Verifier
-    OS -. Poseidon2 commitment<br/>at enrollment .-> Controller
+    Prover -.->|proof + auth_hash| Verifier
+    OS -.->|Poseidon2 commitment<br/>at enrollment| Controller
 ```
 
 The integration introduces **three new contracts** plus a compatibility shim:
@@ -106,37 +106,35 @@ sequenceDiagram
     participant RC as recovery-controller
     participant SA as SmartAccount
     participant GP as guard-policy
-    participant WV as webauthn-verifier
 
     Submitter->>RC: complete_recovery()
 
     rect rgb(245, 245, 250)
     Note over RC: Pre-flight checks
-    RC->>RC: verify (now ≥ initiation_ledger<br/>+ timelock_duration + Σ cancel_pauses)
-    RC->>RC: verify deposit_rent_sufficient<br/>(else fail-closed; pending entry archives)
+    RC->>RC: verify timelock expired<br/>(now >= initiation + timelock + sum_of_pauses)
+    RC->>RC: verify deposit rent sufficient<br/>(else fail-closed)
     RC->>RC: verify ZK proof valid
-    RC->>RC: verify cancel_count ≤ cap (=2)
+    RC->>RC: verify cancel_count <= 2
     end
 
     rect rgb(240, 250, 240)
-    Note over RC,SA: Inner call 1 — install new signer
+    Note over RC,SA: Inner call 1 - install new signer
     RC->>SA: add_signer(new_pk)
-    SA->>GP: __check_auth<br/>Context = CallContract(self, add_signer)<br/>ContextRule = Default
-    Note over GP: enforce(ctx, signers, …)<br/>reads pending_recovery_state<br/>sees: pending, controller is delegated signer,<br/>timelock_expired, proof_verified
-    GP-->>SA: permit add_signer
+    SA->>GP: __check_auth (Default rule)
+    Note over GP: enforce reads pending state<br/>controller is delegated signer<br/>timelock_expired, proof_verified
+    GP-->>SA: permit
     SA-->>RC: ok
     end
 
     rect rgb(250, 245, 245)
-    Note over RC,SA: Inner call 2 — remove old signer
+    Note over RC,SA: Inner call 2 - remove old signer
     RC->>SA: remove_signer(pk_old)
     SA->>GP: __check_auth (same path)
-    GP-->>SA: permit remove_signer
+    GP-->>SA: permit
     SA-->>RC: ok
     end
 
-    RC->>Submitter: refund deposit
-    RC->>Submitter: emit RecoveryCompleted
+    RC->>Submitter: refund deposit + RecoveryCompleted
 ```
 
 The completion call is **two inner calls** (add_signer then remove_signer) gated by the same guard-policy invocation against the same pending-recovery state. A0 measures this exact path.
