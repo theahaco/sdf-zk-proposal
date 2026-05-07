@@ -18,7 +18,7 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
     theme: "base",
     themeVariables: {
       fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      fontSize: "13px",
+      fontSize: "15px",
       primaryColor: "#eef2f7",
       primaryBorderColor: "#155799",
       primaryTextColor: "#0b3d2e",
@@ -31,8 +31,8 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
       noteBorderColor: "#d97706",
       noteTextColor: "#451a03",
     },
-    flowchart: { curve: "basis", nodeSpacing: 50, rankSpacing: 70, htmlLabels: true },
-    sequence: { actorMargin: 60, boxMargin: 12, noteFontWeight: "500", messageFontWeight: "400" },
+    flowchart: { curve: "basis", nodeSpacing: 60, rankSpacing: 80, htmlLabels: true, useMaxWidth: false },
+    sequence: { actorMargin: 70, boxMargin: 14, noteFontWeight: "500", messageFontWeight: "400", useMaxWidth: false },
   });
   document.querySelectorAll("pre code.language-mermaid").forEach((block) => {
     const div = document.createElement("div");
@@ -66,9 +66,20 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
 
   /* === Body === */
   .main-content {
-    max-width: 760px;
+    max-width: 1080px;
     margin: 0 auto;
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  /* Constrain prose to a comfortable measure while letting tables/diagrams use full width */
+  .main-content > p,
+  .main-content > ul,
+  .main-content > ol,
+  .main-content > blockquote,
+  .main-content > h1,
+  .main-content > h2,
+  .main-content > h3,
+  .main-content > h4 {
+    max-width: 78ch;
   }
   .main-content p, .main-content li {
     line-height: 1.65;
@@ -126,27 +137,27 @@ title: ZK Proofs on Soroban — Recovery + Privacy Bundle
 
   /* === Mermaid diagrams === */
   .mermaid {
-    display: flex;
-    justify-content: center;
-    margin: 1.5em 0;
-    padding: 1.25em 1em;
+    display: block;
+    margin: 1.75em 0;
+    padding: 1.25em;
     background: #fafbfc;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
-    overflow-x: auto;
+    overflow-x: auto;        /* let big diagrams scroll horizontally rather than shrink */
+    text-align: center;
   }
-  .mermaid svg { max-width: 100%; height: auto; }
+  .mermaid svg {
+    max-width: none;         /* render at natural size; container scrolls if needed */
+    height: auto;
+    margin: 0 auto;
+  }
 
   /* === Mobile === */
   @media (max-width: 768px) {
     .main-content { font-size: 16px; padding: 1.2rem; }
     .main-content table { font-size: 0.84em; }
-    .mermaid {
-      padding: 0.5em;
-      /* Allow horizontal scroll for wide diagrams; users can pinch-zoom too */
-      overflow-x: scroll;
-    }
-    .mermaid svg { min-width: 700px; max-width: none; }
+    .mermaid { padding: 0.5em; }
+    .mermaid svg { min-width: 700px; }
     .proposal-meta { font-size: 0.7rem; letter-spacing: 0.12em; }
   }
 
