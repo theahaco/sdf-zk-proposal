@@ -2,7 +2,7 @@
 
 Companion to `SDF_PROPOSAL_ONE_PAGER.md`. This is for the SDF protocol team and any reviewer who wants the architecture, milestones, risks, and references in full.
 
-This revision incorporates feedback from a 10-person internal/external review. Material changes vs. v1: a pre-grant benchmark milestone (A0), a dedicated `g2c-recovery-controller` contract for pending-rotation state, a fully-specified `auth_hash` preimage, a VK upgrade governance design, hard contractual track separation, named audit firms with separate scopes, a concrete budget, and a Pillar 2 compliance-gate section.
+This revision (v3) incorporates feedback from two rounds of internal/external review (10 agents each). v3 deltas vs v2: cancel-loop attack closed, VK multi-sig governance hardened with named organizations and hardware attestation, dual-ECDSA gate count must be pre-published before A0 signs, TTL archival rent + restore semantics specified, on-curve + canonical-limb encoding required, OZ Policy correctly scoped to `CallContract(self_addr)`, Verifier trait completed (`canonicalize_key`, `batch_canonicalize_key`), g2c-OZ compatibility shim crate, A0 split 50/50, A6 LOI upgraded to signed integration agreement, B7 acceptance reframed to in-grant verifiables, named SDF compliance reviewer for C1/C3, optional Shamir fast-recovery path scoped post-grant.
 
 ---
 
@@ -10,7 +10,7 @@ This revision incorporates feedback from a 10-person internal/external review. M
 
 We are proposing a single coordinated grant that lands two ZK applications on Stellar, with hard contractual track separation:
 
-- **Pillar 1 — g2c: ZK account recovery as a universal primitive.** A BIP-39 seed-derived `owner_secret` is committed on-chain at enrollment as `Poseidon2(owner_secret)`. On recovery, a Noir/UltraHonk proof bound to a fully-specified `auth_hash` triggers a 30-day time-locked key rotation through a new `g2c-recovery-controller` contract that integrates with g2c's OpenZeppelin SmartAccount surface. During the timelock window the WebAuthn signer is forbidden from removing the ZK signer.
+- **Pillar 1 — g2c: ZK account recovery as a universal primitive.** A BIP-39 seed-derived `owner_secret` is committed on-chain at enrollment as `Poseidon2(owner_secret)`. On recovery, a Noir/UltraHonk proof bound to a fully-specified `auth_hash` triggers a 30-day time-locked key rotation through a new `g2c-recovery-controller` contract. During the timelock window the WebAuthn signer is forbidden from removing the ZK signer; cancellation requires both WebAuthn and a fresh proof of seed-knowledge, with a hard cap of 2 cancels per recovery initiation.
 - **Pillar 2 — neftwerk: ZK privacy as a sector validator.** Three Noir circuits (`arts1_mint`, `arts1_ownership`, `arts1_recovery`) implement "private title, public provenance" for the ARTS-1 token standard, with the recovery circuit being the same primitive as Pillar 1.
 
 Framing: **Universal primitive in g2c + sector application in neftwerk.** The shared substrate is **Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x**, and we estimate **~30–40% engineering shared** across the two tracks. Track A and Track B funds are disbursed independently; an A0 benchmark failure or a Pillar 2 compliance-gate slip does not affect Track A.
@@ -21,53 +21,40 @@ Framing: **Universal primitive in g2c + sector application in neftwerk.** The sh
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Circuit DSL | Noir (`nargo` 1.0.0-beta.x) | Mature, audited tooling; first-class UltraHonk backend |
-| Proving system | UltraHonk via Aztec's Barretenberg (`bb` 0.87.x) | Universal SRS (no per-circuit ceremony); succinct verification |
-| Hash | Poseidon2 over the BN254 scalar field, **Aztec-default parameter set, pinned to `bb` 0.87.x** | Domain-separated per use (commitment vs. recovery vs. nullifier) |
-| Curve | BN254 | ~100-bit pairing security; migration plan to BLS12-381 noted in §13 |
+| Circuit DSL | Noir (`nargo` 1.0.0-beta.x) | Mature tooling; first-class UltraHonk backend |
+| Proving system | UltraHonk via Aztec's Barretenberg (`bb` 0.87.x) — pinned by SHA-256 of the release tarball | Universal SRS; A2 VK registry supports `bb`-version bumps |
+| Hash | Poseidon2 over BN254 scalar field, **Aztec parameter set t=3 (commit width-2 sponge), round constants pinned by SHA-256** | Domain-separated per use (commitment / recovery / mint / ownership / nullifier) |
+| Curve | BN254 | ~100-bit pairing security; migration plan to BLS12-381 (Appendix A) |
+| ECDSA-P256 gadget | `noir-bigcurve` + `noir_ecdsa` from `noir-lang`, pinned commit + matched `bb` 0.87.x compatibility | A1 spec names exact tags |
 | Verifier | `ultrahonk-soroban-verifier` Rust crate (no_std + alloc) | Deployed to Stellar testnet today |
-| Soroban SDK | 25.x (workspace-pinned) | Tracks current mainnet protocol; OZ `stellar-accounts` pinned to a specific commit per §3 |
-| Browser prover | `bb.js` (WASM), lazy-loaded on `/recover/` route only | Cross-origin isolation requirement addressed in §5.3 |
+| OZ compatibility | New `g2c-oz-compat` shim crate (see §3) | Single re-export surface; storage-layout XDR hash regression suite in CI |
+| Soroban SDK | 25.x | Pinned to a specific commit at A1 |
+| Browser prover | `bb.js` (WASM, lazy-loaded on `/recover/` only) | COOP/COEP deployment plan in §5 |
 
-**Why UltraHonk over Groth16, Plonk, Halo2, RISC0/SP1?** UltraHonk's universal SRS removes the per-circuit ceremony — the load-bearing requirement for a universal recovery primitive that wallets will instantiate against bespoke circuits. We will benchmark Groth16-on-Soroban as part of A0 to publish the verification-CPU delta; if Groth16 verifies at <1/3 the Soroban budget for the recovery circuit, we fund a Groth16 path for Pillar 1's fixed circuits and keep UltraHonk for Pillar 2's evolving ones.
+**Why UltraHonk over Groth16, Plonk, Halo2, RISC0/SP1?** Universal SRS removes per-circuit ceremonies — necessary for a recovery primitive instantiated against bespoke wallet circuits. A0 publishes a Groth16-on-Soroban verification-CPU comparison; if Groth16 verifies at <1/3 the budget for the fixed Pillar-1 recovery circuit, we add a Groth16 verifier *behind the same VK registry* (no fork of the substrate; same VK upgrade governance applies).
 
 ---
 
 ## 3. Architecture: ZK signer plug-in to g2c
 
-g2c's SmartAccount is built on OpenZeppelin's `stellar-accounts` library and implements `CustomAccountInterface` + `SmartAccount` + `ExecutionEntryPoint`. The integration introduces **two new contracts**:
+The integration introduces **three new contracts** plus a compatibility shim:
 
-- **`g2c-zk-recovery-verifier`** — stateless `Verifier` implementation following the same trait shape as the existing `g2c-webauthn-verifier`. Takes `KeyData = Bytes32` (the Poseidon2 commitment) and `SigData = (proof_bytes, public_inputs)`. Cross-invokes the shared `ultrahonk-soroban-verifier` crate.
-- **`g2c-recovery-controller`** — stateful contract that owns the pending-rotation state machine (see §4). Per-account persistent storage with explicit TTL extension to survive the 30-day window. Provides `initiate_recovery(account, proof, sig_data, new_pubkey)`, `cancel_recovery(account)`, and `complete_recovery(account)` entrypoints.
+- **`g2c-zk-recovery-verifier`** — stateless OZ `Verifier`. **Implements the full trait**: `verify(env, hash, key_data, sig_data) -> bool`, `canonicalize_key(env, key_data) -> Bytes`, `batch_canonicalize_key(env, key_data_list) -> Bytes`. `KeyData = BytesN<32>` (Poseidon2 commitment). `SigData = (proof_bytes: Bytes, public_inputs: Vec<BytesN<32>>)`. Cross-invokes `ultrahonk-soroban-verifier`.
+- **`g2c-recovery-controller`** — stateful contract owning the pending-rotation state machine (§4). Persistent storage with **explicit TTL extension paid from a per-account recovery deposit**; if deposit is exhausted, `complete_recovery` fails-closed and the pending state archives safely. Entrypoints: `initiate_recovery`, `cancel_recovery`, `complete_recovery`. **Controller upgrades are governed by the same 3-of-5 VK multi-sig + 14-day timelock as the verifier registry.**
+- **`g2c-recovery-guard-policy`** — separate OZ `Policy` contract, scoped to `ContextRuleType::CallContract(self_address)` and **installed on every `ContextRule` that can authorize signer mutations**. Its `enforce()` reads the recovery-controller's pending-rotation state via cross-contract call; during a pending rotation it blocks `remove_signer(zk)` and requires both signers' auth for `add_signer(*)`. The cross-contract-call gas overhead is measured explicitly in A0 (Policy-with-cross-call benchmark).
+- **`g2c-oz-compat`** — thin re-export crate over the OZ `stellar-accounts` surface area g2c uses. Pins the OZ version (commit hash + storage-layout XDR hash). CI test fails on storage-layout drift. Future OZ upgrades touch this one file.
 
 ### Critical safety property: signer-removal guard
 
-The existing OZ `add_signer` / `remove_signer` (`smart-account/contract.rs:105–113`) requires only `current_contract_address().require_auth()` — which a stolen WebAuthn signer can satisfy. **A naive integration is bypassable: the attacker rotates away the ZK signer.**
+The existing OZ `add_signer` / `remove_signer` (`smart-account/contract.rs:105–113`) requires only `current_contract_address().require_auth()` — a stolen WebAuthn signer satisfies this. Naive integration is bypassable.
 
-The fix is a **policy-level guard registered as a `ContextRule`**:
+The fix is the `g2c-recovery-guard-policy` above. **Three properties make it correct:**
 
-```
-during pending recovery → remove_signer(zk_recovery_signer) is forbidden
-during pending recovery → add_signer(*) requires both the WebAuthn signer
-                          AND the recovery_controller's auth
-```
+1. The Policy is **registered on every `ContextRule` that lists a signer with `add_signer`/`remove_signer` authority** — not just the Default rule. A1 deliverable includes a per-rule policy-attachment audit.
+2. The Policy is scoped to `ContextRuleType::CallContract(self_address)`, so it intercepts inner calls to the SmartAccount's signer mutation entrypoints regardless of how `auth_contexts` selects rules.
+3. The recovery-controller is registered as a `Signer::Delegated(controller_addr)`, so `complete_recovery()` can satisfy `current_contract_address().require_auth()` when it cross-calls the SmartAccount to atomically rotate the signer — but only after timelock + proof-verified.
 
-The `g2c-recovery-controller` is registered as an additional admin signer at enrollment. Its `require_auth()` is satisfied only after the timelock expires AND the recovery proof verified. This is enforced as an OZ `Policy`, not application logic — meaning it cannot be bypassed by `execute()`.
-
-### Updated call path on recovery
-
-```
-Submitter → SmartAccount.execute(rotate_signer)
-          → __check_auth → OZ do_check_auth
-          → g2c-zk-recovery-verifier.verify(payload, commitment, sig_data)
-          → ultrahonk-soroban-verifier.verify_proof(public_inputs, proof_bytes)
-          → returns OK → recovery-controller stores pending rotation (persistent storage, TTL extended)
-          → 30-day window begins
-          → during window: remove_signer(zk) blocked by policy
-          → after window: complete_recovery() rotates signer atomically
-```
-
-OZ `stellar-accounts` is pinned to commit `<TBD-at-A2>` for the duration of the grant. Any upgrade requires re-pinning and a regression test against the pending-rotation state machine.
+A4 acceptance criterion: differential tests cover (i) stolen-passkey-only bypass attempt, (ii) double-recovery, (iii) expiration race, (iv) cancellation during legitimate recovery, (v) policy-not-on-rule bypass, (vi) cancel-loop attack (see §4).
 
 ---
 
@@ -76,75 +63,76 @@ OZ `stellar-accounts` is pinned to commit `<TBD-at-A2>` for the duration of the 
 Six steps. (1)–(2) at SmartAccount enrollment; (3)–(6) on recovery.
 
 1. **Seed at enrollment.** During g2c onboarding the wallet asks the user to write down a BIP-39 mnemonic (passphrase optional, explicitly supported). The seed never touches the network.
-2. **Commitment on-chain.** The wallet derives `owner_secret = HKDF-SHA256(ikm = seed, salt = network_passphrase, info = "g2c-recovery-v1" ‖ account_id)`, reduces modulo the BN254 scalar field, and submits `commitment = Poseidon2(owner_secret)` to the `recovery-controller` registered against the SmartAccount.
-3. **Recovery trigger.** User has lost their passkey. Opens `mysoroban.xyz/recover/` (cross-account entry — finds the C-address from the seed, no need to remember the subdomain). Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt.
-4. **Proof generation in the browser.** Using `bb.js` (WASM, lazy-loaded), the browser generates a Noir/UltraHonk proof for the circuit:
+2. **Commitment + recovery deposit on-chain.** The wallet derives `owner_secret = HKDF-SHA256(ikm = seed, salt = network_passphrase, info = "g2c-recovery-v1" ‖ account_id)`, reduces modulo BN254 scalar order, and submits `commitment = Poseidon2(domain_sep_commitment, owner_secret)` to the `recovery-controller` along with a one-time **recovery deposit** (covers ~40 days of TTL extension at current Soroban rent). The deposit is refundable on `complete_recovery` net of consumed rent.
+3. **Recovery trigger.** User has lost their passkey. Opens `mysoroban.xyz/recover/`. **Cross-account discovery decision**: the page does NOT maintain a server-side `commitment → C-address` index (privacy regression). Instead the user enters the C-address (printed on a recovery card at enrollment) OR scans a QR code stored in any device that registered the account. Wallets MUST provide a recovery-card export at enrollment as an A5 acceptance criterion. Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt + language selection.
+4. **Proof generation in the browser.** `bb.js` (WASM, lazy-loaded) generates an UltraHonk proof for the circuit:
    ```
    public inputs:
      commitment           : Field    // pinned at enrollment
-     auth_hash            : Field    // see preimage spec below
+     auth_hash            : Field    // single Field, see preimage spec below
    private inputs:
      owner_secret         : Field
+     new_signer_pubkey    : (Field, Field, Field, Field, Field)  // 5 limbs ≤128 bits
    asserts:
-     Poseidon2(owner_secret) == commitment
-     auth_hash             == provided_auth_hash   // bound to public input
+     Poseidon2(domain_sep_commitment, owner_secret) == commitment
+     auth_hash == Poseidon2(domain_sep_recovery, account_id, network_passphrase, contract_addr,
+                            limb0, limb1, limb2, limb3, limb4, nonce, timelock_duration)
+     // Pubkey integrity (NEW IN v3):
+     each_limb < 2^128                                // range check
+     limbs_compose_canonically_to_65_bytes            // canonical decomposition
+     point_on_secp256r1(decompressed_pubkey)          // on-curve check
    ```
-   The **`auth_hash` preimage is fully specified**:
-   ```
-   auth_hash = Poseidon2(
-       domain_sep,            // = Poseidon2("g2c-recovery-v1") – constant per circuit version
-       account_id,            // 32 bytes – Stellar StrKey decoded
-       network_passphrase,    // 32 bytes – SHA-256 of the passphrase string
-       contract_addr,         // 32 bytes – recovery-controller address
-       new_signer_pubkey,     // 65 bytes – uncompressed P-256, split into 128-bit limbs (range-checked in-circuit)
-       nonce,                 // 8 bytes – monotonic counter from recovery-controller
-       timelock_duration      // 4 bytes – chosen at enrollment, minimum 7 days
-   )
-   ```
-5. **On-chain submission.** Wallet calls `recovery-controller.initiate_recovery(account, proof, sig_data, new_pubkey)`. The controller verifies the proof, validates `nonce` is monotonic, confirms the public-input `auth_hash` matches the recomputed value, stores the pending rotation in persistent storage with explicit 35-day TTL, emits a `RecoveryInitiated` event, and starts the timelock.
-6. **30-day timelock + completion.** During the window: the original passkey, if present, can call `cancel_recovery()` (signed by the WebAuthn signer over a domain-separated cancellation hash). After the window: anyone can call `complete_recovery()`, which atomically rotates the signer in the SmartAccount and clears the pending state.
+   The **`auth_hash` is exposed as a single `Field`** (Poseidon2-hashed externally to one element). All subordinate fields enter the Poseidon2 input vector with explicit byte-encoding rules (Appendix A.1).
+5. **On-chain submission.** Wallet calls `recovery-controller.initiate_recovery(account, proof, sig_data, new_pubkey)`. The controller:
+   - Recomputes `auth_hash` from supplied fields and verifies match against the proof's public input
+   - **Verifies `timelock_duration ≥ 7 days` (controller-side floor; not just in-circuit)**
+   - Verifies `nonce` is monotonic (controller's per-account counter)
+   - Pays TTL extension from the recovery deposit (35 days)
+   - Stores pending rotation in persistent storage
+   - Emits `RecoveryInitiated(account, new_pubkey_hash, completes_at_ledger, cancel_count=0)` event
+   - Wallets MUST subscribe and notify via the user's opted-in channel (push/email/SMS)
+6. **30-day timelock + cancellation policy + completion.** During the window, `cancel_recovery()` requires:
+   - WebAuthn signer signature over `cancel_hash = Poseidon2(domain_sep_cancel, account_id, contract_addr, current_recovery_nonce, ledger_seq_at_cancel)`
+   - **AND** a fresh `cancel_proof`: a mini-Noir circuit proving `Poseidon2(domain_sep_commitment, secret) == commitment` for the same `commitment`. This means cancellation requires *either* the legitimate user (who has the seed) *or* an attacker who has both the WebAuthn signer AND the seed (in which case rotation is the easier attack — cancellation is pointless).
+   - **Cap of 2 cancels per recovery initiation.** A 3rd `cancel_recovery` is rejected; the recovery completes after the 30-day window. Cancel count is included in `RecoveryInitiated`/`RecoveryCancelled` events for monitoring.
+   - 24h cooldown between consecutive cancels.
 
-The timelock duration is per-account, **floored at 7 days** to prevent attackers who phish the mnemonic from setting a 1-hour window at enrollment.
+   After the timelock + total cancellation pauses, anyone may call `complete_recovery()`. The controller — registered as a `Signer::Delegated` admin signer — atomically calls `SmartAccount.add_signer(new_pubkey)` and `SmartAccount.remove_signer(old_webauthn_signer)` in a single inner call, gated by the `g2c-recovery-guard-policy` which now permits both because the controller's auth is valid post-timelock-post-proof.
 
-`RecoveryInitiated` events MUST be emitted; wallets are required to subscribe and notify users via push/email/SMS through whatever channel the user opted into at enrollment.
+The cancel-loop attack is closed by the cap + the cancel-proof requirement. The TTL-archival race is closed by the per-account deposit covering the full window.
 
 ---
 
 ## 5. Privacy flow end-to-end (Pillar 2)
 
-Neftwerk's three circuits, with explicit input/output specs.
+Three circuits, with explicit input/output specs and gate-count estimates (to be confirmed at A0).
 
 ### `arts1_mint` (heaviest)
 
-Verifies at minting that **both** Neftwerk (institutional co-signer) and the collector authorized the mint over the same `provenance_secret`.
+Verifies at minting that **both** Neftwerk (institutional co-signer) and the collector authorized the mint over the same `auth_hash`.
 
-- **Public inputs:** `commitment` (output), `provenance_root`, `auth_hash`, `mint_id`, `token_id`.
-- **Private inputs:** institutional ECDSA signature, collector ECDSA signature (both over `auth_hash`), `provenance_secret`, collector `owner_secret`, collector pubkey limbs.
-- **Asserts:** institutional pubkey on-curve and `verify_ecdsa(institutional_pk, auth_hash, sig)`; same for collector; `auth_hash` binds `mint_id`, `token_id`, both pubkeys, and `provenance_secret`; `commitment = Poseidon2(domain_sep_mint, collector_pk_limbs, owner_secret)`; `provenance_root` derived from `provenance_secret` and metadata CID.
-
-The dual-ECDSA load is the highest-risk circuit. Its constraint count is the load-bearing question for A0.
+- **Public inputs:** `commitment` (output), `provenance_root`, `auth_hash` (single Field), `mint_id`, `token_id`.
+- **Private inputs:** institutional ECDSA-P256 signature, collector ECDSA-P256 signature, `provenance_secret`, collector `owner_secret`, collector pubkey limbs.
+- **Asserts:** institutional and collector pubkeys both on-curve; both ECDSA verify against `auth_hash`; canonical-limb encoding for both pubkeys; `auth_hash` binds `mint_id`, `token_id`, both pubkeys, `provenance_secret`, and an institution-side freshness counter; `commitment = Poseidon2(domain_sep_arts1_mint, collector_pk_limbs, owner_secret)`.
+- **Estimated gates (Aztec-engineer estimate, to confirm at A0):** 220–280k UltraHonk gates. Browser prove: 90–180s in WASM, peak heap 1.2–1.8 GB. Will OOM iOS Safari; **mobile mint must use server-side proving via Neftwerk Protocol** (acceptable trust model at mint because Neftwerk is the institutional co-signer anyway).
 
 ### `arts1_ownership`
 
-Used at every transfer/sale. The collector proves they know the secrets behind the on-chain commitment AND that their passkey signed the current transaction.
-
 - **Public inputs:** `commitment`, `auth_hash`, `token_id`.
 - **Private inputs:** `owner_secret`, collector pubkey limbs, ECDSA signature over `auth_hash`.
-- **Asserts:** `auth_hash` includes `token_id`, transaction nonce, contract address, function selector, call args; `commitment == Poseidon2(domain_sep_own, collector_pk_limbs, owner_secret)`; signature valid.
+- **Asserts:** `auth_hash` binds `token_id`, transaction nonce, contract address, function selector, call args; pubkey on-curve; canonical limbs; commitment matches; signature valid.
+- **Estimated gates:** ~110k UltraHonk gates. Browser prove: 8–15s.
 
 ### `arts1_recovery`
 
-The same primitive as Pillar 1, applied to a per-token commitment with token-scoping.
-
 - **Public inputs:** `owner_secret_commitment`, `auth_hash`, `token_id`, `new_owner_pubkey_limbs`.
 - **Private inputs:** `owner_secret`.
-- **Asserts:** `Poseidon2(domain_sep_recovery, owner_secret) == owner_secret_commitment`; `auth_hash` includes `token_id`, contract address, `new_owner_pubkey_limbs`, monotonic nonce.
-
-The token-id binding closes a cross-token replay attack flagged by the cryptography reviewer.
+- **Asserts:** `auth_hash` binds `token_id`, contract address, `new_owner_pubkey_limbs`, monotonic nonce, timelock floor; commitment matches.
+- **Estimated gates:** 6–9k UltraHonk gates. Browser prove: 2–4s.
 
 ### Privacy properties and known gaps
 
-The on-chain ARTS-1 contract knows *what* a token is (via the metadata CID) but not its price or its collector. Price/split logic is off-chain in Neftwerk's database and injected at sale time as transaction arguments ("late-binding").
+The on-chain ARTS-1 contract knows *what* a token is (via metadata CID) but not its price or its collector. Price/split logic is off-chain in Neftwerk's database, injected at sale time as transaction arguments ("late-binding").
 
 **Known gap:** an observer can infer the price by watching USDC outflows on settlement. **Roadmap commitment:** a fourth circuit `arts1_settlement` using the nullifier-set primitive of §6 (out of scope for this grant; explicitly named here as the next milestone).
 
@@ -156,7 +144,7 @@ The on-chain ARTS-1 contract knows *what* a token is (via the metadata CID) but 
 
 - `./test_e2e.sh` runs build → deploy → prove → verify on testnet.
 - Three-contract pattern: `zk-contract` (commitment + cross-call), `ultrahonk-soroban-contract` (proof verifier), `zk-factory-contract` (factory).
-- **Note:** the current on-disk circuit (`circuits/ownership_proof/src/main.nr`) is a hash-knowledge demo and does not yet bind the public input to the recovery circuit's commitment. **A0 deliverable #1 is to bring the on-disk circuit into agreement with §4's spec** before any other circuit work.
+- **Note:** the current on-disk circuit (`circuits/ownership_proof/src/main.nr`) is a hash-knowledge demo; the `assert(new_commitment == new_commitment)` no-op does not bind the public input. **A0 deliverable #1 brings this into agreement with §4's spec** before any other circuit work.
 
 ### `rs-soroban-ultrahonk` — verifier crate
 
@@ -168,7 +156,7 @@ The on-chain ARTS-1 contract knows *what* a token is (via the metadata CID) but 
 
 - Reference implementation with depth-20 tree, insertion proofs, and nullifier-set state on Soroban.
 - Demonstrates the substrate for revocation, replay protection, and future batched settlement (`arts1_settlement`).
-- Repo directory will be renamed to `nullifier_set_primitive` before grant kickoff.
+- Repo directory will be renamed from `tornado_classic` to `nullifier_set_primitive` before grant kickoff.
 
 ---
 
@@ -176,48 +164,52 @@ The on-chain ARTS-1 contract knows *what* a token is (via the metadata CID) but 
 
 Two parallel tracks plus a shared pre-grant benchmark. All milestones have measurable acceptance criteria; tranche release is gated on each milestone's acceptance.
 
-### A0 — Pre-grant Soroban gas benchmark (weeks 1–2, $30k flat)
+### A0 — Pre-grant Soroban gas benchmark (weeks 1–2, $30k split 50/50)
 
-**Pre-grant gating milestone**: paid as a flat fee on completion, regardless of whether the rest of the grant proceeds. Track A and Track B funds are not released until A0 publishes numbers.
+**Pre-grant gating milestone**, paid only on completion. Track A and Track B are not released until A0 publishes numbers.
 
-**Deliverables:**
-- Published CPU instruction count, memory bytes, and resource fee (in stroops) for `verify_proof` on testnet, against three circuits: simple-1-input, Fibonacci-chain, and an `arts1_mint`-shaped reference circuit (~50k constraints, dual-ECDSA placeholder).
-- Same measurements for a Groth16 verifier on Soroban as comparison.
-- Browser proving: peak heap, prove time, WASM bundle size on iPhone 14, Pixel 7, 2020 MacBook Air.
-- The on-disk `ownership_proof` circuit brought into spec agreement.
+**Pre-A0 work, completed before grant signing (no separate fee):**
+- Pre-build `arts1_mint_skeleton.nr` (two `noir-bigcurve` ECDSA-P256 verifies + dummy Poseidon2, no real binding) and publish gate count under `bb` 0.87.x. **2 days of work; required to size A0's reference circuit honestly.**
 
-**Pass criterion:** `arts1_mint`-shaped circuit verification fits within 70M instructions on Soroban (3× headroom under the 100M cap). If pass: Track A and Track B fund. If fail: SDF and team meet to decide between (a) descope (Pillar 1 with smaller circuit only), (b) re-architect with recursive aggregation, (c) terminate the grant.
+**A0 deliverables, paid 50/50:**
+
+| Half | Amount | Deliverables |
+|---|---|---|
+| A0a | $15k | (1) On-disk `ownership_proof` circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for `verify_proof` on testnet for: simple-1-input, Fibonacci-chain, and the `arts1_mint`-shaped reference circuit (using the pre-built skeleton). (3) Policy-with-cross-contract-call benchmark (the `g2c-recovery-guard-policy` + controller cross-call cost). |
+| A0b | $15k | (1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for `arts1_mint` (expected: server-side mint required). |
+
+**Pass criterion:** `arts1_mint`-shaped circuit verification fits within 70M instructions on Soroban (3× headroom under the 100M cap), AND Policy-with-cross-call adds <10M instructions overhead per `__check_auth`. If pass: Track A and Track B fund. If fail: SDF and team meet to decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate.
 
 ### Track A — g2c ZK recovery ($150k tranched 10/20/30/40)
 
 | # | Milestone | Weeks | Acceptance criteria |
 |---|---|---|---|
-| A1 | Spec doc + Noir circuit | 2–4 | Single PDF pinning Poseidon2 parameter set, limb canonicalization rules, `auth_hash` preimage byte layout, HKDF parameters, field-reduction rule. Recovery circuit compiles; replay/cross-account/cross-network unit tests pass. |
-| A2 | Verifier crate v2 + VK governance + recovery-controller | 4–7 | `ultrahonk-soroban-verifier` v2 with VK registry pattern (circuit_id → VK). VK upgrade governance: 3-of-5 multi-sig with named SDF-team + 2 founder + 2 community signers, 14-day timelock on upgrades, opt-in per account, orphan-token migration documented. `g2c-recovery-controller` deployed to testnet with full state machine. |
-| A3 | Generalized factory | 6–7 | g2c-factory accepts multi-signer construction and pre-registered ZK signer at `create_account`. |
-| A4 | SmartAccount integration + signer-removal guard | 7–9 | OZ `Policy` registered preventing WebAuthn-signer eviction of ZK-signer during pending rotation. Differential tests covering: stolen-passkey bypass attempt, double-recovery, expiration, cancellation. |
-| A5 | Browser proving UX | 8–10 | <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7. BIP-39 wordlist autocomplete, checksum, passphrase, language selection. Cross-account `mysoroban.xyz/recover/` entry. Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). |
-| A6 | Audit-ready freeze + mainnet launch | 10–14 | All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window. Mainnet deployment of recovery-controller + verifier with at least one external wallet integrator (LOI required at A4). |
+| A1 | Spec doc + Noir circuits (recovery + cancel-proof) | 2–4 | Single PDF pinning: Poseidon2 round constants by SHA-256; limb canonicalization rules + on-curve check spec; `auth_hash` byte-encoding; HKDF parameters; field-reduction rule; cancellation-hash spec; security argument (reduction sketch); replay matrix (account / network / contract / nonce / token / encoding). Recovery + cancel-proof circuits compile; replay/cross-account/cross-network/canonical-encoding unit tests pass. **`g2c-oz-compat` shim crate published** with storage-layout XDR hash regression suite in CI. **Verifier trait fully implemented** (`verify`, `canonicalize_key`, `batch_canonicalize_key`). OZ `stellar-accounts` commit pinned. |
+| A2 | Verifier crate v2 + VK governance + recovery-controller + recovery-guard-policy | 4–7 | `ultrahonk-soroban-verifier` v2 with VK registry (circuit_id → VK). **VK governance: 3-of-5 multi-sig with named organizational signers (1 SDF + 1 Stellar Foundation external + 1 OpenZeppelin + 2 community signers nominated via public RFP), hardware-attested keys (FIDO2 + WebAuthn attestation required), 14-day timelock on upgrades, opt-in per account, 180-day mandatory key rotation, kill-switch (any 1-of-5 can pause a pending upgrade)**, orphan-token migration documented. `g2c-recovery-controller` deployed to testnet with full state machine + state-machine PDF + storage-layout diagram. `g2c-recovery-guard-policy` deployed; per-rule attachment audit produced. |
+| A3 | Atomic enrollment-time registration | 6–7 | g2c-factory `create_account` accepts pre-registered ZK signer at construction with `Vec<Signer>`, atomically registers commitment with recovery-controller, and enforces `timelock_duration ≥ 7 days` on enrollment. Re-scoped from "multi-signer factory" to atomic enrollment per OZ-maintainer review. |
+| A4 | SmartAccount integration + signer-removal guard + cancel-loop differential tests | 7–9 | OZ `Policy` correctly scoped to `CallContract(self_addr)` and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering. |
+| A5 | Browser proving UX + recovery-card export | 8–10 | <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection. **Recovery-card export at enrollment** (printable QR + 24-word phrase). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). |
+| A6 | Audit-ready freeze + mainnet launch + integrator signed | 10–14 | All contracts and circuits frozen for 4 weeks circuit audit + 3 weeks contract audit + 2-week fix window each. Mainnet deployment with **at least one external wallet integrator's signed integration agreement** (not LOI). |
 
 ### Track B — neftwerk ZK privacy ($200k tranched 10/20/30/40)
 
-**Pillar 2 funding is gated on Pillar 2 compliance gates (§11) AND A0 pass.**
+**Pillar 2 funding gated on Pillar 2 compliance gates (§11) AND A0 pass. B1 disbursement held until C1 legal opinions are in SDF's hands** (per CFO review).
 
 | # | Milestone | Weeks | Acceptance criteria |
 |---|---|---|---|
-| B0 | Coinflow Soroban transaction-attachment spike + dual-ECDSA feasibility | 2–3 | Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published. |
-| B1 | Three-circuit spec (`arts1_mint`, `arts1_ownership`, `arts1_recovery`) | 3–5 | Single spec PDF following A1's format. All three circuits compile. |
-| B2 | `arts1_ownership` (lightest, validates pattern) | 5–7 | Compiled circuit + verifier integration; replay tests pass. |
-| B4 | `arts1_mint` dual-ECDSA | 7–10 | Compiled circuit; verification cost within A0 budget; stretch goal — descope to single-ECDSA collector signature if A0 left <2× headroom. |
-| B5 | `arts1_recovery` (parameterized A1 primitive) | 9–10 | Same Noir circuit as A1, parameterized for `token_id`. |
-| B6 | ARTS-1 token contract + browser pipeline + royalty enforcement | 10–13 | End-to-end mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. |
-| B7 | Live ARTS-1 pilot mint with **Margaret Ellison Gallery** | 13–14 | Conditional on signed MoU at A0 completion; 5 works, 5 collectors, 3-month observation. **If MoU not secured by week 6, B7 is reframed as a fully-rigged testnet pilot ready for partner activation, no schedule slip to Track A.** |
+| B0 | Coinflow ↔ Soroban transaction-attachment spike + dual-ECDSA feasibility | 2–3 | Coinflow ↔ Soroban primary-sale flow validated on testnet. Dual-ECDSA constraint count published (real circuit, not skeleton). |
+| B1 | Three-circuit spec | 3–5 | Spec PDF following A1 format. All three circuits compile. **C1 legal opinions delivered to SDF reviewer** as gate condition. |
+| B2 | `arts1_ownership` | 5–7 | Compiled circuit + verifier integration; replay tests pass; on-curve + canonical-limb tests pass. |
+| B4 | `arts1_mint` | 7–10 | Compiled circuit; verification cost within A0 budget; **descope to single-ECDSA collector signature** if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live. |
+| B5 | `arts1_recovery` (parameterized A1 primitive) | 9–10 | Same Noir circuit pattern as A1, parameterized for `token_id`. |
+| B6 | ARTS-1 token contract + browser pipeline + royalty enforcement + on-chain freeze | 10–13 | E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. **C2 on-chain freeze function for legal process implemented and tested.** |
+| B7 | Live ARTS-1 pilot — Margaret Ellison Gallery | 13–14 | Conditional on signed MoU at A0 completion. **Acceptance reframed (per CFO review):** pilot launched on mainnet + telemetry instrumentation live + 30-day post-launch retention report. (3-month observation continues post-grant; not a grant deliverable.) **If MoU not secured by week 6**, B7 reframed to fully-rigged testnet pilot ready for partner activation, no schedule slip to Track A. |
 
 ### Shared dependencies
 
-- A2 deliverables feed B2/B4/B5 (verifier registry pattern is consumed by all neftwerk circuits).
+- A2 deliverables feed B2/B4/B5.
 - Browser proving SDK (A5) is consumed by B6.
-- Audit firms cover both tracks (see §9).
+- Audit firms cover both tracks (see §8).
 
 ---
 
@@ -227,21 +219,23 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 | Line item | Amount | Tranching |
 |---|---|---|
-| A0 — pre-grant benchmark | $30k | flat on completion |
+| A0 — pre-grant benchmark (split 50/50) | $30k | A0a $15k / A0b $15k on completion of each half |
 | Track A — g2c ZK recovery | $150k | 10% / 20% / 30% / 40% on A1 / A2 / A4 / A6 |
-| Track B — neftwerk ZK privacy | $200k | 10% / 20% / 30% / 40% on B1 / B4 / B6 / B7, gated on A0 pass + Pillar 2 compliance gates |
+| Track B — neftwerk ZK privacy | $200k | 10% / 20% / 30% / 40% on B1 / B4 / B6 / B7, gated on A0 pass + Pillar 2 compliance gates; B1 held until C1 in SDF reviewer's hands |
 | **Total** | **$380k** | |
 
-**Audit credits requested separately** from SDF's standard pool. Two auditors, two scopes:
+**Audit credits** requested separately from SDF's standard pool. Two auditors, two scopes:
 
-- **Circuit audit** (4-week scope): zkSecurity, Veridise, or Spearbit ZK practice. Scope: all four Noir circuits, Poseidon2 parameter set, ECDSA-in-circuit gadgets, limb canonicalization, replay protection, `auth_hash` preimage binding.
-- **Contract audit** (3-week scope): OtterSec, Trail of Bits, or Halborn. Scope: `g2c-zk-recovery-verifier`, `g2c-recovery-controller`, generalized factory changes, ARTS-1 token contract, OZ `Policy` for signer-removal guard.
+- **Circuit audit** (4-week scope): zkSecurity, Veridise, or Spearbit ZK practice. Scope: all four Noir circuits + cancel-proof circuit, Poseidon2 parameter set, ECDSA-in-circuit gadgets, limb canonicalization, on-curve checks, replay protection, `auth_hash` preimage binding.
+- **Contract audit** (3-week scope): OtterSec, Trail of Bits, or Halborn. Scope: `g2c-zk-recovery-verifier`, `g2c-recovery-controller`, `g2c-recovery-guard-policy`, `g2c-oz-compat` shim, generalized factory changes, ARTS-1 token contract.
 
 2-week fix window after each audit. No mainnet deployment until both audits clean.
 
-**Team:** 3 FTE — one ZK/circuit lead, one Soroban/Rust contracts engineer, one frontend/browser-prover engineer. Names and FTE percentages provided to SDF on grant signing.
+**Team:** 3 FTE — one ZK/circuit lead (Aztec/Noir background required, must have shipped a production ECDSA-in-circuit gadget), one Soroban/Rust contracts engineer, one frontend/browser-prover engineer. Names and FTE percentages provided to SDF on grant signing.
 
-**Track independence clause:** Track A funds are NOT collateralized by Track B's progress. Track A continues to disburse on its own milestones even if Track B is paused for compliance, A0 fails for `arts1_mint`-sized circuits, or B7's gallery MoU does not materialize. Conversely, Track B is held back if Track A's audit findings invalidate the shared verifier crate.
+**Track independence clause** (codified in grant agreement): Track A milestone payments are not contingent on Track B status, and vice versa, except for the A0 prerequisite. Track A continues even if Track B is paused for compliance, A0 fails for `arts1_mint`-sized circuits, or B7's MoU does not materialize. Track B is held back if Track A's audit invalidates the shared verifier.
+
+**Compliance reviewer designation:** SDF designates a named internal counsel or external reviewer for Pillar 2 compliance gates C1/C3 (legal opinions). Reviewer name disclosed at grant signing. No tranche release without reviewer sign-off.
 
 ---
 
@@ -249,16 +243,22 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| 1 | UltraHonk gas/budget on Soroban exceeds the 100M-instruction cap for `arts1_mint`-sized circuits | Medium | High | **A0 measurement gate paid as a flat pre-grant fee.** Published numbers before any other funds release. Failure paths defined: descope, re-architect with aggregation, or terminate. |
-| 2 | Larger circuits (~50+ constraints, dual-ECDSA in `arts1_mint`) untested | Medium | Medium | A0 includes an `arts1_mint`-shaped reference circuit. B0 then runs the real dual-ECDSA feasibility spike. B4 has an explicit single-ECDSA descope path. |
-| 3 | Recovery proof front-running or replay across accounts/networks | Medium | High | `auth_hash` preimage fully specified in §4 with `domain_sep`, `account_id`, `network_passphrase`, `contract_addr`, `new_signer_pubkey`, `nonce`, `timelock_duration`. Unit tests in A1 cover all five replay vectors. |
-| 4 | **WebAuthn signer is rotated by an attacker who removes the ZK signer first** | Medium | Critical | OZ `Policy` (registered at enrollment) forbids `remove_signer(zk)` during pending rotation; `add_signer` during pending rotation requires both signers' auth. Differential test in A4 explicitly attempts the bypass. |
-| 5 | VK governance attack (malicious VK swap) | Low | Catastrophic | A2 delivers a **3-of-5 multi-sig VK registry** with named signers (SDF-team + founder + community), 14-day on-chain timelock for any VK upgrade, opt-in per account. Existing accounts pinned to the VK they enrolled with; opt-in to new VKs is a separate user action. |
-| 6 | Browser proving fails on mobile or under cross-origin isolation | Medium | Medium | A5 publishes measured numbers per device tier. WASM lazy-loaded only on `/recover/`. COOP/COEP headers + Cloudflare Worker compatibility validated. **Server-assisted prover fallback removed from this proposal**; if needed in v2, designed as MPC proving where the server provably never sees the secret. |
-| 7 | No audit yet | Certain | High | Two named auditors (circuit + contract), 4+3 weeks separate scopes, 2-week fix window each, no mainnet without clean reports. |
-| 8 | Pillar 2 securities/AML/sanctions exposure | Medium | High | Track B funds gated on Pillar 2 compliance gates (§11). Track A is independent and continues regardless. |
-| 9 | BN254 ~100-bit pairing security degrades within RWA token lifespan | Low | High | Migration plan documented in §13 (Appendix A). VK registry supports adding BLS12-381 verifiers without disrupting BN254-pinned accounts. |
-| 10 | OZ `stellar-accounts` library upgrades break pending recoveries | Medium | Medium | Library pinned to a specific commit at A2; upgrade requires regression test against the pending-rotation state machine; existing accounts opt-in. |
+| 1 | UltraHonk gas/budget exceeds 100M-instruction cap for `arts1_mint` | Medium | High | A0 measurement gate paid as flat pre-grant fee; pre-built `arts1_mint_skeleton.nr` published before A0 signs; failure paths defined (descope / aggregate / terminate). |
+| 2 | Larger circuits (~50+ constraints, dual-ECDSA) untested | Medium | Medium | A0 includes `arts1_mint`-shaped reference; B0 runs real dual-ECDSA spike; B4 has explicit single-ECDSA descope path. |
+| 3 | Recovery proof front-running or replay across accounts/networks/contracts/encodings | Medium | High | `auth_hash` preimage fully specified §4; on-curve + canonical-limb checks added; replay matrix in A1 covers six vectors. |
+| 4 | WebAuthn signer evicts ZK signer (stolen-passkey bypass) | Medium | Critical | `g2c-recovery-guard-policy` scoped to `CallContract(self_addr)`, installed on every signer-mutating ContextRule; differential tests in A4. |
+| 5 | VK governance attack (malicious VK swap) | Low | Catastrophic | 3-of-5 multi-sig with **named organizational signers** (1 SDF + 1 Stellar Foundation external + 1 OZ + 2 community via public RFP); **FIDO2 hardware attestation required**; 14-day on-chain timelock; opt-in per account; 180-day mandatory rotation; **kill-switch (any 1-of-5 pauses)**; existing accounts pinned to enrolled VK at the verifier-crate level. |
+| 6 | Browser proving fails on mobile or under cross-origin isolation | Medium | Medium | A5 publishes measured numbers; WASM lazy-loaded only on `/recover/`; COOP/COEP headers + Cloudflare Worker compatibility validated. **`arts1_mint` mobile mint uses server-side proving via Neftwerk Protocol** (institutional co-signer is online anyway). |
+| 7 | No audit yet | Certain | High | Two named audit firms (circuit + contract), 4+3 weeks separate scopes, 2-week fix window each, no mainnet without clean reports. |
+| 8 | Pillar 2 securities/AML/sanctions exposure | Medium | High | Track B funds gated on §11 compliance gates; SDF reviewer designated; B1 held until C1 in hand. Track A independent. |
+| 9 | BN254 ~100-bit pairing security degrades within RWA token lifespan | Low | High | Migration plan in Appendix A; VK registry supports parallel BLS12-381 verifier. |
+| 10 | OZ `stellar-accounts` library upgrades break pending recoveries | Medium | Medium | `g2c-oz-compat` shim crate; storage-layout XDR hash CI regression test; library pinned at A1. |
+| 11 | **Cancel-loop attack (NEW v3)** — stolen passkey blocks legitimate recovery indefinitely | Medium | High | `cancel_recovery` requires both WebAuthn signature AND fresh seed-knowledge proof; cap of 2 cancels per initiation; 24h cooldown between cancels; cancel events emitted to user notification channel. |
+| 12 | **TTL archival race (NEW v3)** — pending-rotation state archived during 30-day window | Medium | Critical | Per-account recovery deposit at enrollment covers ~40 days of TTL extension; `complete_recovery` fails-closed if rent exhausted; `RestoreFootprint` ordering specified (restored state cannot retroactively re-open a completed/cancelled recovery). |
+| 13 | **Pubkey encoding malleability (NEW v3)** | Medium | Critical | In-circuit on-curve check on P-256 pubkey; canonical-limb decomposition (`hi*2^128 + lo < secp256r1_modulus`); A1 unit tests cover non-canonical encodings as adversarial inputs. |
+| 14 | **Pre-enrollment squatting (NEW v3)** — attacker phishes mnemonic before user enrolls, registers commitment first | Low | High | Enrollment binds `commitment` to `account_id`; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow). |
+| 15 | **VK-upgrade UI coercion attack (NEW v3)** | Medium | High | "Required VK refresh" prompts disallowed in integrator's-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish `VKUpgradeProposed` alerts before any wallet defaults to opt-in. |
+| 16 | **bb.js supply-chain attack (NEW v3)** | Medium | Critical | SRI hash for the `bb.js` bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact. |
 
 ---
 
@@ -266,27 +266,27 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 The engineering case for one grant over two:
 
-- **One verifier crate** (`ultrahonk-soroban-verifier`) serves both g2c-recovery and neftwerk-privacy.
+- **One verifier crate** (`ultrahonk-soroban-verifier`) serves both pillars.
 - **One browser proving harness** (bb.js + WebWorker + `/recover/` route).
 - **One Poseidon2 parameter set**, domain-separated per use, audited once.
-- **One VK registry**, one storage layout, one proof format.
-- **One audit RFP** covering circuits + contracts + integration, scoped across both tracks.
+- **One VK registry + one governance** mechanism.
+- **One audit RFP** covering circuits + contracts + integration.
 
 We deliver a cross-repo dependency graph as the first artifact of A1.
 
-The reviewer-friendly version of "why bundle" is: bundling saves engineering time **only** because Track A and Track B share a substrate. They do not share business logic, end-users, regulatory posture, or success criteria. Disbursement is therefore independent (§8).
+Bundling saves engineering time **only because** Track A and Track B share a substrate. They do not share business logic, end-users, regulatory posture, or success criteria. Disbursement is therefore independent (§8).
 
 ---
 
 ## 11. Pillar 2 compliance gates
 
-Track B funds are gated on the following deliverables from the neftwerk team, independent of any technical milestone. These items are exactly the launch-blocking concerns identified in neftwerk's own legal review.
+Track B funds gated on the following deliverables from the neftwerk team. Reviewed by **a named SDF compliance reviewer** (designated at grant signing).
 
 | Gate | Deliverable | Track B effect |
 |---|---|---|
-| C1 | MSB / NY VTL / EU VASP / MiCA classification opinions for ARTS-1 primary issuance | No Track B funds release until delivered |
-| C2 | On-chain freeze function pursuant to documented legal process (court orders, OFAC SDN matches, probate). Implemented on the ARTS-1 token contract as B6 acceptance criterion. | Blocking for B6 |
-| C3 | Howey opinion for single-edition ARTS-1 tokens, including treatment of enforced royalties; explicit no-fractionalization covenant | Blocking for B6 |
+| C1 | MSB / NY VTL / EU VASP / MiCA classification opinions for ARTS-1 primary issuance | **B1 held until C1 in SDF reviewer's hands** |
+| C2 | On-chain freeze function pursuant to documented legal process. Implemented as B6 acceptance. | Blocking for B6 |
+| C3 | Howey opinion for single-edition ARTS-1 tokens, including treatment of enforced royalties; explicit no-fractionalization covenant | Blocking for B6, reviewed by SDF reviewer |
 | C4 | Geographic scoping plan: Reg-S-style geofence during grant period; KYC threshold for secondary transfers above $X | Blocking for B6 |
 | C5 | Estate-planning disclosure flow at enrollment | Blocking for B7 |
 
@@ -300,11 +300,21 @@ If any gate is not met by week 9, Track B is paused; Track A continues unaffecte
 
 The recovery circuit is a key-rotation primitive any Soroban Smart Account can adopt; neftwerk is the second consumer, not the only one. Concrete future consumers:
 
-- **Custody wallets** wanting non-custodial paper-mnemonic recovery.
-- **RWA issuers** (real estate, supply-chain, carbon credits) needing ownership privacy with provable transfer history.
-- **Compliance-sensitive institutions** wanting counterparty privacy without surrendering provability to a custodian.
+- Custody wallets needing non-custodial paper-mnemonic recovery
+- RWA issuers (real estate, supply-chain, carbon credits) needing ownership privacy with provable transfer history
+- Compliance-sensitive institutions wanting counterparty privacy without surrendering provability
 
-A6 deliverable includes a one-page **integrator's guide**: the minimal interface a Soroban contract has to implement to consume the ZK recovery primitive. **At least one external wallet integrator's LOI is required at A4** as a tranche-release condition.
+A6 deliverable includes a one-page **integrator's guide**: the minimal interface a Soroban contract has to implement to consume the ZK recovery primitive. **At least one external wallet integrator's signed integration agreement is required at A6** (upgraded from LOI per CFO review).
+
+---
+
+## 12.5. Optional fast-recovery path (post-grant scope)
+
+The 30-day timelock is structurally incompatible with high-velocity collector use cases (insurance renewals, museum loans, tax audits, estate updates) and was repeatedly flagged across three review rounds (gallery review, end-user persona, Browser engineer, Neftwerk PM).
+
+**v3 commitment:** the team will design a Shamir 2-of-3 fast-recovery path (collector + gallery + Neftwerk shares, 7-day timelock for high-value tokens, gallery-attested) as a **post-grant deliverable**, scoped in a follow-on proposal. The cryptographic substrate for it (Shamir shares + threshold verification) is additive on top of the current recovery primitive — no breaking change to the v3 contracts.
+
+This is explicitly **not in scope for the current grant**. It is acknowledged here so reviewers understand the team is not ignoring the gap; it is sequenced.
 
 ---
 
@@ -331,40 +341,61 @@ A6 deliverable includes a one-page **integrator's guide**: the minimal interface
 - `zk/neftwerk/milestones.md`
 - `zk/neftwerk/review-technical.md`
 - `zk/neftwerk/review-legal.md`
-- `zk/neftwerk/review-gallery.md` (Margaret Ellison's pilot offer)
+- `zk/neftwerk/review-gallery.md`
 
 ### External
 - Noir: <https://noir-lang.org/>
 - Barretenberg / UltraHonk: <https://github.com/AztecProtocol/aztec-packages>
+- `noir-bigcurve`, `noir_ecdsa`: `noir-lang` org
 - OpenZeppelin Stellar Contracts: `stellar-contracts-OZ/`
 
 ---
 
 ## Appendix A — Cryptographic parameters
 
-- **Curve.** BN254 (alt_bn128), 254-bit prime field, pairing-friendly. ~100-bit pairing security after recent TNFS analyses.
-- **Migration plan.** VK registry (A2) supports parallel BLS12-381 verifier deployment without disrupting BN254-pinned accounts. We commit to publishing a BLS12-381 prototype as a post-grant deliverable; full migration estimated 2027–2028.
-- **Hash.** Poseidon2 over BN254 scalar field, **Aztec-default parameter set** (`bb` 0.87.x), with **domain separation** per use:
-  - `domain_sep_commitment = Poseidon2("g2c-recovery-v1-commitment")`
-  - `domain_sep_recovery = Poseidon2("g2c-recovery-v1-auth-hash")`
-  - `domain_sep_arts1_mint = Poseidon2("arts1-mint-v1")`
-  - `domain_sep_arts1_own = Poseidon2("arts1-ownership-v1")`
-  - `domain_sep_arts1_rec = Poseidon2("arts1-recovery-v1")`
-- **Commitment scheme.** `commitment = Poseidon2(domain_sep, secret_limbs)` with all field-larger-than-BN254-scalar inputs split into 128-bit limbs, **range-checked in-circuit**.
-- **HKDF.** SHA-256 as PRF; `ikm = BIP-39 seed`, `salt = Stellar network passphrase`, `info = "g2c-recovery-v1" ‖ account_id`. Output reduced modulo BN254 scalar order.
-- **Proof system.** UltraHonk via Barretenberg; Fiat-Shamir transcript, Sumcheck, Shplonk multi-opening.
-- **Sizes (measured).** VK ≈ 1.9 KB, proof ≈ 3.7 KB (456 BN254 field elements). Public-input count varies per circuit.
-- **G2 SRS.** Aztec's powers-of-tau ceremony output, hardcoded in `ec.rs:7-27`. SDF acceptance of this SRS is a discussion point in the 30-minute review.
+### A.1 — Encoding spec (NEW v3)
+
+All Field-bound inputs to Poseidon2 follow these rules:
+
+- **65-byte uncompressed P-256 pubkey** (`0x04 ‖ x ‖ y`): split into 5 limbs of ≤128 bits via big-endian decomposition. Order: `(prefix_byte, x_hi, x_lo, y_hi, y_lo)`. Each limb range-checked `< 2^128` in-circuit. Composition check: `prefix == 0x04` and `x = x_hi * 2^128 + x_lo` and `y = y_hi * 2^128 + y_lo` and `(x, y)` lies on secp256r1.
+- **`account_id`** (Stellar StrKey / `BytesN<32>`): 32 bytes interpreted as 2 BN254 field elements (`hi`, `lo`) via 16-byte big-endian split. Range-checked.
+- **`network_passphrase`** (variable string): SHA-256 hashed, then encoded as 2 BN254 field elements via the same 16-byte split.
+- **`contract_addr`** (Stellar contract address / `BytesN<32>`): same as `account_id`.
+- **`nonce`**: 8 bytes BE → 1 Field.
+- **`timelock_duration`**: 4 bytes BE seconds → 1 Field.
+- **`token_id`**: 32 bytes → 2 Field elements (16-byte split).
+
+### A.2 — Domain separators
+
+- `domain_sep_commitment = Poseidon2("g2c-recovery-v1-commitment")`
+- `domain_sep_recovery = Poseidon2("g2c-recovery-v1-auth-hash")`
+- `domain_sep_cancel = Poseidon2("g2c-recovery-v1-cancel-hash")`
+- `domain_sep_arts1_mint = Poseidon2("arts1-mint-v1")`
+- `domain_sep_arts1_own = Poseidon2("arts1-ownership-v1")`
+- `domain_sep_arts1_rec = Poseidon2("arts1-recovery-v1")`
+- `domain_sep_nullifier = Poseidon2("nullifier-set-primitive-v1")`
+
+All domain separators are passed as the **first** input element of every Poseidon2 call. The Aztec Poseidon2 sponge is multi-input-collision-resistant under standard assumptions.
+
+### A.3 — Other parameters
+
+- **Curve.** BN254 (alt_bn128), 254-bit prime field. ~100-bit pairing security.
+- **Migration plan.** VK registry supports parallel BLS12-381 verifier deployment without disrupting BN254-pinned accounts. BLS12-381 prototype committed as post-grant deliverable; full migration estimated 2027–2028.
+- **HKDF.** SHA-256 PRF; `ikm = BIP-39 seed`, `salt = network_passphrase` (raw string), `info = "g2c-recovery-v1" ‖ account_id` (33 bytes), output length = 32 bytes, then reduced modulo BN254 scalar order. Bias from naive `mod q` is ~2⁻²⁵² — acceptable.
+- **Proof system.** UltraHonk via Barretenberg; Fiat-Shamir, Sumcheck, Shplonk.
+- **Sizes (measured).** VK ≈ 1.9 KB, proof ≈ 3.7 KB.
+- **G2 SRS.** Aztec's powers-of-tau ceremony output, hardcoded in `ec.rs:7-27`. SDF acceptance is a discussion point in the 30-minute review.
 
 ---
 
 ## Appendix B — Prior art
 
-- **Semaphore-style group-membership patterns.** Source of the commit-then-prove + nullifier-set pattern. Our nullifier-set primitive (§6) ports this design to Soroban with a depth-20 Merkle tree.
-- **Aztec Protocol.** UltraHonk's home; we follow Aztec's circuit conventions for Poseidon2 and ECDSA verification.
-- **OpenZeppelin Stellar SmartAccount.** Verifier-per-signer pattern; our extension mechanism.
-- **BIP-39.** Mnemonic format for offline seed storage; we layer HKDF for account-derivation.
+- **Semaphore-style group-membership patterns.** Source of the commit-then-prove + nullifier-set pattern.
+- **Aztec Protocol.** UltraHonk's home.
+- **OpenZeppelin Stellar SmartAccount.** Verifier-per-signer + Policy pattern.
+- **BIP-39.** Mnemonic format for offline seed storage.
+- **Argent / Safe wallet recovery.** Reference for timelock + guardian patterns; we deliberately use cryptographic guardianship instead of social.
 
 ---
 
-*End of appendix. See `SDF_PROPOSAL_ONE_PAGER.md` for the executive summary.*
+*End of appendix v3. See `SDF_PROPOSAL_ONE_PAGER.md` for the executive summary.*

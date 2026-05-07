@@ -15,7 +15,7 @@ Both reduce to the same ZK substrate. **Universal primitive in g2c + sector appl
 
 ## The two pillars
 
-**Pillar 1 — g2c: ZK account recovery as a universal primitive.** A user holds a BIP-39 seed offline at enrollment. From it we derive `owner_secret = HKDF(seed, account_id, network_passphrase)` and store `Poseidon2(owner_secret)` as a commitment. On recovery, the user generates a Noir/UltraHonk proof in the browser bound to a fully-specified `auth_hash = H(domain_sep ‖ account_id ‖ network_passphrase ‖ contract_addr ‖ new_signer_pubkey ‖ nonce)`. A new dedicated `g2c-recovery-controller` contract holds the pending-rotation state machine; during the timelock window the WebAuthn signer is **forbidden** from removing the ZK signer. The integration plugs into g2c's existing OZ `do_check_auth` pipeline; no protocol changes.
+**Pillar 1 — g2c: ZK account recovery as a universal primitive.** A user holds a BIP-39 seed offline at enrollment. From it we derive `owner_secret = HKDF(seed, account_id, network_passphrase)` and store `Poseidon2(owner_secret)` as a commitment. On recovery, the user generates a Noir/UltraHonk proof in the browser bound to a fully-specified `auth_hash` (account, network, contract, new pubkey with on-curve + canonical-limb checks, nonce, timelock duration). A new `g2c-recovery-controller` contract holds the pending-rotation state machine; a separate `g2c-recovery-guard-policy` (OZ `Policy` scoped to `CallContract(self_addr)`) blocks any signer eviction during the window. Cancellation requires both the WebAuthn signer AND a fresh seed-knowledge proof, capped at 2 cancels per recovery (closes the cancel-loop attack). Integration plugs into g2c's existing OZ `do_check_auth` pipeline; no protocol changes.
 
 **Pillar 2 — neftwerk: ZK privacy as a sector validator.** Neftwerk's ARTS-1 token standard for art on Stellar uses three Noir circuits — `arts1_mint` (dual-ECDSA institutional + collector), `arts1_ownership` (private transfer authority), and `arts1_recovery` (the same primitive as Pillar 1 with token-id binding). Privacy model: "private title, public provenance."
 
@@ -33,9 +33,9 @@ One Noir + UltraHonk + Poseidon2 + BN254 + Soroban 25.x substrate. One verifier 
 
 | Track | Scope | Tranches (10/20/30/40) | Total |
 |---|---|---|---|
-| **A0 (shared)** | Soroban gas/CPU benchmark gate; published numbers for `arts1_mint`-shaped reference circuit before any other circuit work | $30k flat | $30k |
-| **Track A — g2c recovery** | A1 spec → A2 verifier + VK governance → A4 SmartAccount integration + recovery controller → A5 browser UX → A6 audit-ready freeze + mainnet | $150k tranched | $150k |
-| **Track B — neftwerk privacy** | B0–B7, gated on A0 pass + Pillar 2 compliance gates (MSB/VASP/MiCA opinions, on-chain freeze for legal process, Howey opinion) | $200k tranched | $200k |
+| **A0 (shared)** | Pre-grant Soroban gas/CPU benchmark gate. **Pre-A0 (no fee): publish `arts1_mint_skeleton.nr` gate count.** Then A0a $15k (testnet `verify_proof` numbers + Policy-with-cross-call benchmark + on-disk circuit aligned to spec) and A0b $15k (Groth16 comparison + browser benchmarks on iPhone 14 / Pixel 7 / 2020 MacBook Air) | $30k split 50/50 | $30k |
+| **Track A — g2c recovery** | A1 spec + g2c-OZ shim → A2 verifier + named-org VK multi-sig + recovery-controller + recovery-guard-policy → A4 integration + cancel-loop tests → A5 browser UX + recovery-card → A6 audit-ready freeze + mainnet + signed integrator agreement | $150k tranched | $150k |
+| **Track B — neftwerk privacy** | B0–B7, gated on A0 pass + Pillar 2 compliance gates reviewed by a named SDF reviewer (B1 held until C1 in hand) | $200k tranched | $200k |
 | **Total** | 14 weeks, ~3 FTE | | **$380k** |
 
 Audit credits requested separately from SDF's standard pool: **circuit audit** (zkSecurity / Veridise / Spearbit ZK) and **contract audit** (OtterSec / Trail of Bits / Halborn) named separately, with a 4-week circuit freeze and 3-week contract freeze.
