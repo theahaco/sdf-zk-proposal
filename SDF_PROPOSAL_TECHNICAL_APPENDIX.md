@@ -52,10 +52,13 @@ ZK-signer registration is **only supported via the atomic factory path** (`g2c-f
 Submitter        recovery-controller       SmartAccount         guard-policy        webauthn-verifier (existing)
    │                    │                       │                    │                    │
    │── complete_rec ───▶│                       │                    │                    │
-   │                    │── verify timelock ────│                    │                    │
+   │                    │── verify (now ≥ initiation_ledger          │                    │
+   │                    │   + timelock_duration + Σ cancel_pauses)   │                    │
+   │                    │── verify deposit_rent_sufficient (else     │                    │
+   │                    │   fail-closed; pending entry archives)     │                    │
    │                    │── verify proof valid ─│                    │                    │
    │                    │── verify cancel_count │                    │                    │
-   │                    │   ≤ cap_minus_pauses  │                    │                    │
+   │                    │   ≤ cap (=2)          │                    │                    │
    │                    │── inner call ────────▶│ add_signer(new_pk) │                    │
    │                    │                       │── __check_auth ───▶│                    │
    │                    │                       │   Context = CallContract(self,           │
