@@ -6,7 +6,8 @@ Companion to `SDF_PROPOSAL_ONE_PAGER.md`. This is for the SDF protocol team and 
 - v2: initial post-review revision
 - v3: applied 14 must-fix items from second 10-agent review
 - v4: applied HIGH findings from third (focused) review — sequence diagram for `complete_recovery`, recovery-card content rule, rate-limit on initiations, kill-switch DoS mitigation, OZ_UPSTREAM_DIFF.md and `pnpm test:parity` as A1 deliverables, post-grant Shamir constraint
-- v5 (current): VK governance diversified-quorum rule (forecloses both Stellar-only and OZ+community-only collusion paths)
+- v5: VK governance diversified-quorum rule (forecloses both Stellar-only and OZ+community-only collusion paths)
+- v6 (current): pre-A0 skeleton hard precondition; A0 cash-flow as reimbursement (not advance); per-FTE loading chart; budget gross-loading clarified; B7 split into B7a (in-grant) + B7b (post-grant retention report); pass criterion calibrated against measured skeleton not vapor
 
 ---
 
@@ -205,21 +206,22 @@ The on-chain ARTS-1 contract knows *what* a token is (via metadata CID) but not 
 
 Two parallel tracks plus a shared pre-grant benchmark. All milestones have measurable acceptance criteria; tranche release is gated on each milestone's acceptance.
 
+### Pre-A0 — Mandatory pre-disbursement skeleton (no SDF fee)
+
+**Hard precondition for ANY SDF disbursement, including A0.** Before grant signing, the team publishes the `arts1_mint_skeleton.nr` gate count under `bb` 0.87.x — two `noir-bigcurve` ECDSA-P256 verifies + dummy Poseidon2, no real binding. ~2 days of work, performed at the team's own cost. The published number replaces the v3 estimate as the reference for A0's pass criterion. **No SDF money flows until this is published.**
+
 ### A0 — Pre-grant Soroban gas benchmark (weeks 1–2, $30k split 50/50)
 
-**Pre-grant gating milestone**, paid only on completion. Track A and Track B are not released until A0 publishes numbers.
+**Cash-flow:** A0 is **reimbursement after delivery**, not advance funding. The team carries A0 work at risk; SDF disburses A0a's $15k on A0a deliverables verified, A0b's $15k on A0b deliverables verified. If A0 fails the pass criterion, the $30k is not paid; no clawback because no advance was made.
 
-**Pre-A0 work, completed before grant signing (no separate fee):**
-- Pre-build `arts1_mint_skeleton.nr` (two `noir-bigcurve` ECDSA-P256 verifies + dummy Poseidon2, no real binding) and publish gate count under `bb` 0.87.x. **2 days of work; required to size A0's reference circuit honestly.**
-
-**A0 deliverables, paid 50/50:**
+**A0 deliverables, paid 50/50 on completion:**
 
 | Half | Amount | Deliverables |
 |---|---|---|
-| A0a | $15k | (1) On-disk `ownership_proof` circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for `verify_proof` on testnet for: simple-1-input, Fibonacci-chain, and the `arts1_mint`-shaped reference circuit (using the pre-built skeleton). (3) Policy-with-cross-contract-call benchmark (the `g2c-recovery-guard-policy` + controller cross-call cost). |
+| A0a | $15k | (1) On-disk `ownership_proof` circuit brought into spec agreement. (2) Published CPU instructions, memory bytes, and resource fee for `verify_proof` on testnet for: simple-1-input, Fibonacci-chain, and the `arts1_mint`-shaped reference circuit (using the pre-A0 skeleton). (3) Policy-with-cross-contract-call benchmark (the `g2c-recovery-guard-policy` + controller cross-call cost). |
 | A0b | $15k | (1) Groth16-on-Soroban verifier comparison for the recovery circuit. (2) Browser proving benchmarks (peak heap, prove time, WASM bundle size) on three named device tiers: iPhone 14, Pixel 7, 2020 MacBook Air. (3) Mobile-prove feasibility report for `arts1_mint` (expected: server-side mint required). |
 
-**Pass criterion:** `arts1_mint`-shaped circuit verification fits within 70M instructions on Soroban (3× headroom under the 100M cap), AND Policy-with-cross-call adds <10M instructions overhead per `__check_auth`. If pass: Track A and Track B fund. If fail: SDF and team meet to decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate.
+**Pass criterion (calibrated against pre-A0 skeleton number, not vapor):** `arts1_mint`-shaped circuit verification fits within `max(70M instructions, 1.5 × measured_skeleton_cost)` on Soroban — whichever is *more permissive* — AND Policy-with-cross-call adds <10M instructions overhead per `__check_auth`. The 70M floor is a sanity check; the 1.5× multiplier accommodates the gap between skeleton (no real binding) and the full circuit. If actual `arts1_mint` cost lands above this threshold, SDF and team decide between (a) descope, (b) re-architect with recursive aggregation, (c) terminate. **If pre-A0 skeleton itself measures above 50M instructions, the proposal is restructured before grant signing — Track B's `arts1_mint` is descoped to single-ECDSA in scope before any funds are committed.**
 
 ### Track A — g2c ZK recovery ($150k tranched 10/20/30/40)
 
@@ -244,7 +246,8 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 | B4 | `arts1_mint` | 7–10 | Compiled circuit; verification cost within A0 budget; **descope to single-ECDSA collector signature** if A0 left <2× headroom (decision documented); server-side proving infrastructure for mobile mint live. |
 | B5 | `arts1_recovery` (parameterized A1 primitive) | 9–10 | Same Noir circuit pattern as A1, parameterized for `token_id`. |
 | B6 | ARTS-1 token contract + browser pipeline + royalty enforcement + on-chain freeze | 10–13 | E2E mint and transfer with privacy on testnet. Royalty-locked secondary transfers as acceptance criterion. **C2 on-chain freeze function for legal process implemented and tested.** |
-| B7 | Live ARTS-1 pilot — Margaret Ellison Gallery | 13–14 | Conditional on signed MoU at A0 completion. **Acceptance reframed (per CFO review):** pilot launched on mainnet + telemetry instrumentation live + 30-day post-launch retention report. (3-month observation continues post-grant; not a grant deliverable.) **If MoU not secured by week 6**, B7 reframed to fully-rigged testnet pilot ready for partner activation, no schedule slip to Track A. |
+| B7a | ARTS-1 pilot launch (mainnet or testnet) | 13–14 | Conditional on signed MoU at A0 completion. **Acceptance:** pilot transaction(s) executed on mainnet (or fully-rigged testnet pilot ready for partner activation if MoU not secured by week 6) + telemetry instrumentation live + **7-day in-grant retention metric** (not 30-day, which exceeds grant period). |
+| B7b (post-grant) | 30-day retention report | week 17–18 | Disbursed conditionally **after grant close** as a $0 delta — telemetry already running, report generation only. SDF may withhold a $5k portion of B7a's tranche pending B7b delivery if mainnet pilot launched. |
 
 ### Shared dependencies
 
@@ -272,7 +275,19 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 2-week fix window after each audit. No mainnet deployment until both audits clean.
 
-**Team:** 3 FTE — one ZK/circuit lead (Aztec/Noir background required, must have shipped a production ECDSA-in-circuit gadget), one Soroban/Rust contracts engineer, one frontend/browser-prover engineer. Names and FTE percentages provided to SDF on grant signing.
+**Team:** 3 FTE — one ZK/circuit lead (Aztec/Noir background required, must have shipped a production ECDSA-in-circuit gadget), one Soroban/Rust contracts engineer, one frontend/browser-prover engineer. Names and FTE percentages provided to SDF on grant signing. **Per-FTE loading chart** (delivered with grant agreement, summary here):
+
+| Week | ZK lead (Track-A bias) | Contracts eng (cross-track) | Frontend/prover eng |
+|---|---|---|---|
+| 1–2 | A0 skeleton + measurements | A0 Policy benchmark + cost script | A0 browser benchmarks |
+| 3–4 | A1 spec PDF + circuits | A1 OZ shim + verifier trait | A1 parity CI test scaffold |
+| 5–7 | B1 / B2 spec + circuit | A2 controller + guard-policy + VK registry | A5 wireframes + recovery-card export |
+| 7–9 | B4 mint circuit | A3 factory + A4 integration tests | A5 BIP-39 UX + WASM lazy-load |
+| 9–11 | B5 / B6 circuits + parity tests | B6 token contract + freeze function | A5 final UX + cross-origin isolation |
+| 11–13 | Audit-prep freeze + circuit-audit interface | Audit-prep freeze + contract-audit interface | A5 mainnet polish |
+| 13–14 | B7 pilot launch support | A6 mainnet deploy + integrator handoff | B7 telemetry + retention metrics |
+
+**Budget transparency:** $380k / 3 FTE / 14 weeks = $9k/FTE/week. This figure is **gross** (covers fully loaded comp, taxes, benefits, overhead); team commitments are documented at grant signing. SDF retains the right to descope or restructure if the loading chart proves untenable at week 4 review.
 
 **Track independence clause** (codified in grant agreement): Track A milestone payments are not contingent on Track B status, and vice versa, except for the A0 prerequisite. Track A continues even if Track B is paused for compliance, A0 fails for `arts1_mint`-sized circuits, or B7's MoU does not materialize. Track B is held back if Track A's audit invalidates the shared verifier.
 
@@ -304,7 +319,7 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 | 18 | **Recovery-deposit griefing (NEW v4)** | Low | Medium | Per-account recovery initiation rate-limit: max 3 `initiate_recovery` per 90-day rolling window. |
 | 19 | **mysoroban.xyz origin compromise (NEW v4)** | Low | Critical | Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. **Out of scope (post-grant):** native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth. |
 | 20 | **Kill-switch DoS (NEW v4)** | Low | High | First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation. |
-| 21 | **VK upgrade governance bias (NEW v4)** | Low | High | SDF + Stellar Foundation external signers treated as one effective vote for collusion analysis. **Diversified-quorum rule (v5)**: any 3-of-5 quorum must include ≥1 Group-A signer (SDF/SF) AND ≥1 signer from {Group B (OZ) ∪ Group C (community)}. Forecloses both Stellar-only collusion AND OZ+community-only collusion. Documented in A2 governance design + grant agreement. |
+| 21 | **VK upgrade governance bias (NEW v4)** | Low | High | SDF + Stellar Foundation external signers treated as one effective vote *for collusion analysis only*; the on-chain rule remains plain 3-of-5 with the diversified-quorum predicate. **Diversified-quorum rule (v5)**: any 3-of-5 quorum must include ≥1 Group-A signer (SDF/SF) AND ≥1 signer from {Group B (OZ) ∪ Group C (community)}. **Property:** every accepted quorum requires at least one outside-Group-A signature, so even if SDF and SF collude (worst case for the "effective one vote" framing), the 3rd signature must come from OZ or community — i.e. cross-organizational consent is mandatory. Forecloses both Stellar-only collusion AND OZ+community-only collusion. Documented in A2 governance design + grant agreement. |
 | 22 | **Document version drift (NEW v5)** | Low | Low | Header version label maintained per revision; cross-doc consistency verified via grep test on each commit; commit history in repo serves as the canonical revision audit trail. |
 
 ---
