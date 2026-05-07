@@ -42,7 +42,42 @@ The integration introduces **three new contracts** plus a compatibility shim:
 - **`g2c-zk-recovery-verifier`** — stateless OZ `Verifier`. **Implements the full trait**: `verify(env, hash, key_data, sig_data) -> bool`, `canonicalize_key(env, key_data) -> Bytes`, `batch_canonicalize_key(env, key_data_list) -> Bytes`. `KeyData = BytesN<32>` (Poseidon2 commitment). `SigData = (proof_bytes: Bytes, public_inputs: Vec<BytesN<32>>)`. Cross-invokes `ultrahonk-soroban-verifier`.
 - **`g2c-recovery-controller`** — stateful contract owning the pending-rotation state machine (§4). Persistent storage with **explicit TTL extension paid from a per-account recovery deposit**; if deposit is exhausted, `complete_recovery` fails-closed and the pending state archives safely. Entrypoints: `initiate_recovery`, `cancel_recovery`, `complete_recovery`. **Controller upgrades are governed by the same 3-of-5 VK multi-sig + 14-day timelock as the verifier registry.**
 - **`g2c-recovery-guard-policy`** — separate OZ `Policy` contract, scoped to `ContextRuleType::CallContract(self_address)` and **installed on every `ContextRule` that can authorize signer mutations**. Its `enforce()` reads the recovery-controller's pending-rotation state via cross-contract call; during a pending rotation it blocks `remove_signer(zk)` and requires both signers' auth for `add_signer(*)`. The cross-contract-call gas overhead is measured explicitly in A0 (Policy-with-cross-call benchmark).
-- **`g2c-oz-compat`** — thin re-export crate over the OZ `stellar-accounts` surface area g2c uses. Pins the OZ version (commit hash + storage-layout XDR hash). CI test fails on storage-layout drift. Future OZ upgrades touch this one file.
+- **`g2c-oz-compat`** — thin re-export crate over the OZ `stellar-accounts` surface area g2c uses. Pins the OZ version (commit hash + storage-layout XDR hash). CI test fails on storage-layout drift. Future OZ upgrades touch this one file. **A1 deliverable also publishes an `OZ_UPSTREAM_DIFF.md`** documenting every divergence between g2c's consumer-side trait usage and upstream OZ traits, so the contract auditor can scope the shim's compatibility surface explicitly.
+
+### No non-factory enrollment paths
+
+ZK-signer registration is **only supported via the atomic factory path** (`g2c-factory.create_account_with_zk_signer`). No other enrollment path (manual SDK call, migration of existing g2c accounts, post-deployment registration) is supported. This forecloses pre-enrollment squatting on non-factory paths: a commitment cannot be registered against an `account_id` outside the atomic factory transaction. Migration of existing g2c accounts to ZK recovery is a separate post-grant deliverable with its own threat model.
+
+### Sequence diagram for `complete_recovery`
+
+```
+Submitter        recovery-controller       SmartAccount         guard-policy        webauthn-verifier (existing)
+   │                    │                       │                    │                    │
+   │── complete_rec ───▶│                       │                    │                    │
+   │                    │── verify timelock ────│                    │                    │
+   │                    │── verify proof valid ─│                    │                    │
+   │                    │── verify cancel_count │                    │                    │
+   │                    │   ≤ cap_minus_pauses  │                    │                    │
+   │                    │── inner call ────────▶│ add_signer(new_pk) │                    │
+   │                    │                       │── __check_auth ───▶│                    │
+   │                    │                       │   Context = CallContract(self,           │
+   │                    │                       │              add_signer)                 │
+   │                    │                       │   ContextRule = Default                  │
+   │                    │                       │   guard-policy.enforce(ctx, signers, …) │
+   │                    │                       │   reads pending_recovery_state           │
+   │                    │                       │   sees: pending, controller is signer,   │
+   │                    │                       │   timelock_expired, proof_verified       │
+   │                    │                       │   → permits add_signer                  │
+   │                    │                       │── inner call ─────│ require_auth(ctlr) │
+   │                    │                       │── ok ─────────────│                    │
+   │                    │   inner call ────────▶│ remove_signer(pk_old)                   │
+   │                    │                       │── __check_auth ───▶│ same path → permits │
+   │                    │── refund deposit ────▶│                    │                    │
+   │                    │── emit RecoveryCompleted                                          │
+   │── ok ──────────────│                                                                   │
+```
+
+The completion call is **two inner calls** (add_signer then remove_signer) gated by the same guard-policy invocation against the same pending-recovery state. A0 measures this exact path.
 
 ### Critical safety property: signer-removal guard
 
@@ -64,7 +99,9 @@ Six steps. (1)–(2) at SmartAccount enrollment; (3)–(6) on recovery.
 
 1. **Seed at enrollment.** During g2c onboarding the wallet asks the user to write down a BIP-39 mnemonic (passphrase optional, explicitly supported). The seed never touches the network.
 2. **Commitment + recovery deposit on-chain.** The wallet derives `owner_secret = HKDF-SHA256(ikm = seed, salt = network_passphrase, info = "g2c-recovery-v1" ‖ account_id)`, reduces modulo BN254 scalar order, and submits `commitment = Poseidon2(domain_sep_commitment, owner_secret)` to the `recovery-controller` along with a one-time **recovery deposit** (covers ~40 days of TTL extension at current Soroban rent). The deposit is refundable on `complete_recovery` net of consumed rent.
-3. **Recovery trigger.** User has lost their passkey. Opens `mysoroban.xyz/recover/`. **Cross-account discovery decision**: the page does NOT maintain a server-side `commitment → C-address` index (privacy regression). Instead the user enters the C-address (printed on a recovery card at enrollment) OR scans a QR code stored in any device that registered the account. Wallets MUST provide a recovery-card export at enrollment as an A5 acceptance criterion. Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt + language selection.
+3. **Recovery trigger.** User has lost their passkey. Opens `mysoroban.xyz/recover/`. **Cross-account discovery decision**: the page does NOT maintain a server-side `commitment → C-address` index (privacy regression). Instead the user enters the C-address from a **recovery card**. **Recovery-card content rule (security-critical):** the recovery card contains *only* the C-address and a human-readable account label. **The card MUST NOT contain the BIP-39 seed**, which is held on a separate paper artifact never digitized as QR. This separation defeats the physical-card exfiltration attack (photo of QR ≠ access to seed). Wallets MUST provide a recovery-card export at enrollment as an A5 acceptance criterion. Re-enters BIP-39 mnemonic with wordlist autocomplete + checksum validation + passphrase prompt + language selection.
+
+   **Per-account recovery initiation rate limit (NEW v4):** the controller enforces a maximum of 3 `initiate_recovery` calls per 90-day rolling window. This prevents recovery-deposit griefing (initiate→cancel→re-initiate). The 4th attempt within the window is rejected; the user must wait until the oldest initiation falls outside the window.
 4. **Proof generation in the browser.** `bb.js` (WASM, lazy-loaded) generates an UltraHonk proof for the circuit:
    ```
    public inputs:
@@ -184,8 +221,8 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 
 | # | Milestone | Weeks | Acceptance criteria |
 |---|---|---|---|
-| A1 | Spec doc + Noir circuits (recovery + cancel-proof) | 2–4 | Single PDF pinning: Poseidon2 round constants by SHA-256; limb canonicalization rules + on-curve check spec; `auth_hash` byte-encoding; HKDF parameters; field-reduction rule; cancellation-hash spec; security argument (reduction sketch); replay matrix (account / network / contract / nonce / token / encoding). Recovery + cancel-proof circuits compile; replay/cross-account/cross-network/canonical-encoding unit tests pass. **`g2c-oz-compat` shim crate published** with storage-layout XDR hash regression suite in CI. **Verifier trait fully implemented** (`verify`, `canonicalize_key`, `batch_canonicalize_key`). OZ `stellar-accounts` commit pinned. |
-| A2 | Verifier crate v2 + VK governance + recovery-controller + recovery-guard-policy | 4–7 | `ultrahonk-soroban-verifier` v2 with VK registry (circuit_id → VK). **VK governance: 3-of-5 multi-sig with named organizational signers (1 SDF + 1 Stellar Foundation external + 1 OpenZeppelin + 2 community signers nominated via public RFP), hardware-attested keys (FIDO2 + WebAuthn attestation required), 14-day timelock on upgrades, opt-in per account, 180-day mandatory key rotation, kill-switch (any 1-of-5 can pause a pending upgrade)**, orphan-token migration documented. `g2c-recovery-controller` deployed to testnet with full state machine + state-machine PDF + storage-layout diagram. `g2c-recovery-guard-policy` deployed; per-rule attachment audit produced. |
+| A1 | Spec doc + Noir circuits (recovery + cancel-proof) | 2–4 | Single PDF pinning: Poseidon2 round constants by SHA-256; **`noir-bigcurve` and `noir_ecdsa` commit hashes pinned**; limb canonicalization rules + on-curve check spec; `auth_hash` byte-encoding; HKDF parameters; field-reduction rule; cancellation-hash spec; security argument (reduction sketch); replay matrix (account / network / contract / nonce / token / encoding). Recovery + cancel-proof circuits compile; replay/cross-account/cross-network/canonical-encoding unit tests pass. **`g2c-oz-compat` shim crate published** with storage-layout XDR hash regression suite in CI; **`OZ_UPSTREAM_DIFF.md` published** documenting all consumer-side divergences. **Verifier trait fully implemented** (`verify`, `canonicalize_key`, `batch_canonicalize_key`); `canonicalize_key` malleability fuzzer in tests. **`pnpm test:parity` CI test** running round-trip across `bb.js` prover, JS Poseidon2 commitment generator, and Soroban verifier; covers all 7 domain separators with adversarial vectors (cross-implementation drift kills recovery silently). OZ `stellar-accounts` commit pinned. |
+| A2 | Verifier crate v2 + VK governance + recovery-controller + recovery-guard-policy | 4–7 | `ultrahonk-soroban-verifier` v2 with VK registry (circuit_id → VK). **VK governance: 3-of-5 multi-sig with five organizationally distinct signers**: 1 SDF, 1 Stellar Foundation external (independently selected; SDF + SF treated as one effective vote for collusion analysis purposes — quorum requires ≥1 non-Stellar-aligned signer), 1 OpenZeppelin, 2 community signers via a **two-stage public RFP** (open nomination → 30-day public comment → on-chain attestation by the SDF + SF + OZ signers). All keys **FIDO2 + WebAuthn attestation required, with accepted AAGUIDs published** (YubiKey 5 series, SoloKeys, T-series; HSM-only operation). **180-day mandatory key rotation** verified on-chain. **Kill-switch with anti-DoS:** any 1-of-5 can pause a pending upgrade for 7 days; a second pause within 30 days requires 4-of-5 to overcome (prevents one compromised signer from indefinitely DoS'ing emergency rotation). 14-day timelock on upgrades, opt-in per account, orphan-token migration ceremony documented. `g2c-recovery-controller` deployed to testnet with full state machine + state-machine PDF + storage-layout diagram + concrete `Context` example for `complete_recovery` per §3 sequence diagram. `g2c-recovery-guard-policy` deployed; per-rule attachment audit produced. **Controller upgrade governance: same multi-sig, same timelock, same opt-in.** |
 | A3 | Atomic enrollment-time registration | 6–7 | g2c-factory `create_account` accepts pre-registered ZK signer at construction with `Vec<Signer>`, atomically registers commitment with recovery-controller, and enforces `timelock_duration ≥ 7 days` on enrollment. Re-scoped from "multi-signer factory" to atomic enrollment per OZ-maintainer review. |
 | A4 | SmartAccount integration + signer-removal guard + cancel-loop differential tests | 7–9 | OZ `Policy` correctly scoped to `CallContract(self_addr)` and installed on every signer-mutating ContextRule. Differential tests covering: stolen-passkey bypass, double-recovery, expiration, cancellation, policy-not-on-rule bypass, cancel-loop, TTL-archival race, restore-after-cancel ordering. |
 | A5 | Browser proving UX + recovery-card export | 8–10 | <5 min recovery proof on 2020 MacBook Air, <8 min on Pixel 7 (median across 3 devices of each tier). BIP-39 wordlist autocomplete, checksum, passphrase, language selection. **Recovery-card export at enrollment** (printable QR + 24-word phrase). Cross-origin isolation deployment plan validated. Graduated unlock during timelock (read-only access). |
@@ -259,6 +296,11 @@ Two parallel tracks plus a shared pre-grant benchmark. All milestones have measu
 | 14 | **Pre-enrollment squatting (NEW v3)** — attacker phishes mnemonic before user enrolls, registers commitment first | Low | High | Enrollment binds `commitment` to `account_id`; an unenrolled C-address has no commitment to attack; user education at enrollment emphasizes sequential ordering (create account → write down phrase → register commitment, all in one flow). |
 | 15 | **VK-upgrade UI coercion attack (NEW v3)** | Medium | High | "Required VK refresh" prompts disallowed in integrator's-guide UX standard; VK upgrades surface as opt-in only with 14-day visibility; 2 independent on-chain monitors required to publish `VKUpgradeProposed` alerts before any wallet defaults to opt-in. |
 | 16 | **bb.js supply-chain attack (NEW v3)** | Medium | Critical | SRI hash for the `bb.js` bundle pinned in the wallet HTML; reproducible-build verification published in A5; npm registry compromise mitigated by vendoring the WASM artifact. |
+| 17 | **Recovery-card QR exfiltration (NEW v4)** | Medium | High | Recovery card contains C-address only, NEVER the seed. Seed lives on a separate paper artifact never digitized. A5 acceptance criterion for the export tooling. |
+| 18 | **Recovery-deposit griefing (NEW v4)** | Low | Medium | Per-account recovery initiation rate-limit: max 3 `initiate_recovery` per 90-day rolling window. |
+| 19 | **mysoroban.xyz origin compromise (NEW v4)** | Low | Critical | Acknowledged as a top-of-stack risk that SRI cannot defend against. Mitigations in scope: DNSSEC, COOP/COEP, strict CSP, signed-loader bootstrap. **Out of scope (post-grant):** native-app option + hardware-wallet integration path; user education that recovery from a compromised origin requires waiting + filing a SmartAccount disclosure. Risk explicitly enumerated so SDF and integrators can plan defense-in-depth. |
+| 20 | **Kill-switch DoS (NEW v4)** | Low | High | First pause is 1-of-5 for 7 days; second pause within 30 days requires 4-of-5. One compromised signer cannot indefinitely block emergency VK rotation. |
+| 21 | **VK upgrade governance bias (NEW v4)** | Low | High | SDF + Stellar Foundation external signers treated as one effective vote for collusion analysis. Quorum requires ≥1 non-Stellar-aligned signer (community or OZ). Documented in A2 governance design + grant agreement. |
 
 ---
 
@@ -313,6 +355,8 @@ A6 deliverable includes a one-page **integrator's guide**: the minimal interface
 The 30-day timelock is structurally incompatible with high-velocity collector use cases (insurance renewals, museum loans, tax audits, estate updates) and was repeatedly flagged across three review rounds (gallery review, end-user persona, Browser engineer, Neftwerk PM).
 
 **v3 commitment:** the team will design a Shamir 2-of-3 fast-recovery path (collector + gallery + Neftwerk shares, 7-day timelock for high-value tokens, gallery-attested) as a **post-grant deliverable**, scoped in a follow-on proposal. The cryptographic substrate for it (Shamir shares + threshold verification) is additive on top of the current recovery primitive — no breaking change to the v3 contracts.
+
+**Constraint (security-critical):** the post-grant Shamir design MUST require the collector's share to participate in any recovery — i.e. **no 2-of-3 path that lets gallery + Neftwerk recover without collector consent**. The threshold scheme is `(collector + 1-of-{gallery, Neftwerk})`, not pure 2-of-3. This forecloses the institutional-collusion attack vector (gallery + Neftwerk recovering a deceased or unreachable collector's tokens without estate consent).
 
 This is explicitly **not in scope for the current grant**. It is acknowledged here so reviewers understand the team is not ignoring the gap; it is sequenced.
 
